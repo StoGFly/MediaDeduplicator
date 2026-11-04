@@ -51,7 +51,7 @@ Main branch: `main`
 
 Latest recorded commit:
 
-`cf20551` — Add orientation-aware SSIM image comparison
+`e1d87aa` — Add project continuity and ORB research documentation
 
 Recorded development milestones:
 
@@ -63,7 +63,7 @@ Recorded development milestones:
 | `f255d66` | Add image metadata extraction |
 | `ec81824` | Add difference hash image comparison |
 | `4507e1c` | Add structural similarity image comparison |
-| `cf20551` | Add orientation-aware SSIM image comparison |
+| `e1d87aa` | Add project continuity and ORB research documentation |
 
 At the last verified Git inspection:
 - No modified tracked files.
@@ -252,15 +252,20 @@ The following areas remain future work unless subsequent documentation or source
 
 Continue experimental ORB research.
 
+Completed experiments: **1–22**.
+
 Next experiment:
 
-**Experiment 21 — Combined rotation and scaling resistance.**
+**Experiment 23 — Irregular occlusion resistance.**
 
-Test combinations of rotation and resizing against:
-- The genuine exact-copy variant.
-- Both unrelated taxi photographs.
+Test irregular occlusion patterns, including:
+- Circular occlusion.
+- Multiple small rectangular occlusions.
+- Irregular polygon or free-form occlusion.
 
-Evaluate mutual matches, geometric inliers, inlier ratio, estimated scale and rotation.
+Use the existing genuine positive and unrelated negative controls where practical.
+
+Record mutual matches, geometric inliers, inlier ratio, estimated scale and rotation.
 
 Do not integrate ORB into production code yet.
 

@@ -611,7 +611,7 @@ Users should be told that changing these affects speed, sensitivity and false-po
 
 Basic mode should hide technical complexity and use sensible defaults.
 
-## 7. Next experiment
+## 7. Recent experiments and next steps
 
 ### Experiment 21 — Combined rotation and scaling resistance
 
@@ -624,29 +624,125 @@ Test these combined transformations:
 | C | 90° | 0.75× |
 | D | 180° | 2.00× |
 
-Compare each transformed genuine image against the original.
+The rotation canvas was expanded to retain the full image before scaling.
 
-Repeat the same transformations against both unrelated taxi photographs.
+**Positive control results**
 
-Record:
-- Detected keypoints.
-- Mutual matches.
-- Geometric inliers.
-- Inlier ratio.
-- Estimated scale.
-- Estimated rotation.
+| Rotation | Applied scale | Mutual matches | RANSAC inliers | Inlier ratio | Estimated scale | Estimated rotation |
+|---:|---:|---:|---:|---:|---:|---:|
+| 30° | 0.50× | 135 | 98 | 72.59% | 2.00350 | 29.82° |
+| 45° | 1.50× | 140 | 110 | 78.57% | 0.66965 | 44.74° |
+| 90° | 0.75× | 168 | 104 | 61.90% | 1.33846 | 89.83° |
+| 180° | 2.00× | 121 | 101 | 83.47% | 0.50076 | 179.82° |
 
-Where possible, expand the rotation canvas so rotation itself does not unnecessarily crop the image before scaling.
+The estimated scales closely matched the reciprocal of the applied scales. Estimated rotations were within approximately 0.3° of the applied rotations.
 
-The next research step is to implement this as a temporary PowerShell experiment, inspect the results, and then decide what to test next.
+**Negative controls**
+
+Two unrelated taxi photographs were subjected to the same transformations.
+
+- Taxi control 1 produced at most 4 mutual matches and 3 inliers.
+- Taxi control 2 produced at most 4 mutual matches and 2 inliers.
+
+One result had a 75% inlier ratio from only four matches, demonstrating why an inlier percentage cannot be considered independently of absolute match counts.
+
+**Conclusion**
+
+The positive control retained strong geometric matching across all four combined transformations. The two negative controls remained weak.
+
+The results are encouraging but do not establish a general false-positive rate because the negative-control dataset is small.
+
+### Experiment 22 — Occlusion resistance
+
+**Objective:** Measure ORB's ability to recognise an image when part of the candidate image is hidden by a solid obstruction.
+
+The reference was `photo_original.jpg`. The positive control was `photo_exact_copy.jpg`. Two unrelated taxi photographs were used as negative controls.
+
+**Test conditions**
+
+- Occlusion levels: 0%, 10%, 20%, 30%, 40% and 50%.
+- Central obstruction: rectangle centred in the image.
+- Edge obstruction: rectangle aligned with the right-hand edge.
+- Obstruction colour: solid black.
+- Rectangle dimensions were calculated to cover the requested percentage of image area.
+- ORB configuration: 2,000 features, Lowe ratio 0.75, mutual matching enabled, RANSAC threshold 5 pixels.
+- OpenCV version: 5.0.0.
+
+The actual occlusion area was within 0.01 percentage points of the requested percentage.
+
+**Positive control results**
+
+| Occlusion | Position | Mutual matches | RANSAC inliers | Inlier ratio |
+|---:|---|---:|---:|---:|
+| 0% | None | 320 | 258 | 80.62% |
+| 10% | Centre | 312 | 245 | 78.53% |
+| 10% | Edge | 314 | 251 | 79.94% |
+| 20% | Centre | 312 | 236 | 75.64% |
+| 20% | Edge | 314 | 251 | 79.94% |
+| 30% | Centre | 302 | 239 | 79.14% |
+| 30% | Edge | 308 | 250 | 81.17% |
+| 40% | Centre | 281 | 240 | 85.41% |
+| 40% | Edge | 294 | 245 | 83.33% |
+| 50% | Centre | 229 | 187 | 81.66% |
+| 50% | Edge | 285 | 240 | 84.21% |
+
+At 50% occlusion, the genuine image still produced:
+
+- 187 RANSAC inliers with central occlusion.
+- 240 RANSAC inliers with edge occlusion.
+
+The estimated scale remained close to 1.0 and the estimated rotation remained close to zero.
+
+The edge obstruction retained more matches than the central obstruction at every tested level. This suggests that, in this particular photograph, the unobstructed right-hand region contains more useful ORB features than the central region.
+
+This is an observation about the test image, not a general rule about edge occlusion.
+
+**Negative control results**
+
+| Control | Mutual matches observed | Maximum RANSAC inliers |
+|---|---:|---:|
+| Taxi control 1 | 3–6 | 2 |
+| Taxi control 2 | 1–4 | 2 |
+
+Some negative-control results had apparently high inlier percentages, but they were based on only one or two inliers. These are not credible geometric matches.
+
+**Conclusion**
+
+ORB demonstrated strong resistance to the tested solid rectangular occlusions, retaining substantial geometric agreement even when half of the candidate image was hidden.
+
+The negative controls remained weak throughout the experiment.
+
+The results support the importance of absolute inlier counts alongside inlier ratios and geometric consistency.
+
+**Limitations**
+
+- Only one genuine photograph was tested.
+- Only two unrelated negative photographs were used.
+- The obstruction was a solid black rectangle, which introduces artificial boundaries that may themselves generate ORB keypoints.
+- Only central and right-edge placements were tested.
+- The experiment does not establish a general occlusion tolerance or production threshold.
+
+### Experiment 23 — Irregular occlusion resistance
+
+Investigate whether ORB's occlusion resistance extends beyond large rectangular obstructions.
+
+Proposed obstruction types:
+
+- Circular obstruction.
+- Multiple smaller rectangles.
+- Irregular polygon or free-form obstruction.
+
+Use comparable covered-area percentages and retain the same positive and negative controls where practical.
+
+Record mutual matches, RANSAC inliers, inlier ratio, estimated scale and rotation.
 
 Do not modify production source code as part of this experiment.
 
 ## 8. Research status
 
-Experiments completed: 1–20.
+Experiments completed: 1–22.
 
-Next: Experiment 21.
+Next: Experiment 23 — Irregular occlusion resistance.
 
 Production integration: Not started.
 
@@ -654,4 +750,4 @@ Production tests: Not written for ORB.
 
 Final ORB thresholds: Not established.
 
-The current findings should be treated as research evidence and not as guaranteed application behaviour.
+The current findings are experimental evidence, not guaranteed application behaviour. More diverse positive and negative images are required before reliable production thresholds can be established.

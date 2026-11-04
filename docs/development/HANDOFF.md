@@ -32,12 +32,12 @@ Branch: `main`
 
 HEAD:
 
-`cf20551` — Add orientation-aware SSIM image comparison
+`e1d87aa` — Add project continuity and ORB research documentation
 
 Recent history:
 
 ```text
-cf20551 Add orientation-aware SSIM image comparison
+e1d87aa Add project continuity and ORB research documentation
 4507e1c Add structural similarity image comparison
 ec81824 Add difference hash image comparison
 f255d66 Add image metadata extraction
@@ -230,4 +230,4 @@ The test suite should only be run after checking the repository and confirming t
 
 Do not assume the historical test count or Git state is still current.
 
-Report the actual state and resume with Experiment 21 unless the user requests a different task.
+Report the actual state and resume with Experiment 23 — Irregular occlusion resistance — unless the user requests a different task.
