@@ -35,3 +35,6 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Personal test media — never commit
+/TestMedia/
