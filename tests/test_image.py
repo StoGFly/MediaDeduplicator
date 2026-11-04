@@ -8,7 +8,9 @@ from PIL import Image, ImageDraw
 
 from mediadedup.detectors.image import (
     ImageComparison,
+    ImageMetadata,
     compare_images,
+    extract_image_metadata,
     find_similar_image_pairs,
     hamming_distance,
     meets_similarity_threshold,
@@ -302,3 +304,79 @@ def test_find_similar_image_pairs_hashes_each_image_once(
 
     assert len(hash_calls) == 3
     assert set(hash_calls) == set(image_paths)
+
+def test_extract_image_metadata(tmp_path):
+    image_path = tmp_path / "metadata.png"
+    create_test_image(image_path)
+
+    metadata = extract_image_metadata(image_path)
+
+    assert isinstance(metadata, ImageMetadata)
+    assert metadata.path == image_path
+    assert metadata.file_size == image_path.stat().st_size
+    assert metadata.width == 200
+    assert metadata.height == 200
+    assert metadata.format == "PNG"
+    assert metadata.mode == "RGB"
+    assert metadata.exif_orientation is None
+    assert metadata.camera_make is None
+    assert metadata.camera_model is None
+    assert metadata.date_taken is None
+
+
+def test_extract_image_metadata_with_exif(tmp_path):
+    image_path = tmp_path / "camera.jpg"
+
+    image = Image.new("RGB", (640, 480), "blue")
+    exif = image.getexif()
+    exif[274] = 6
+    exif[271] = "Canon"
+    exif[272] = "EOS Test"
+    exif[36867] = "2026:11:04 12:00:00"
+    image.save(image_path, exif=exif)
+
+    metadata = extract_image_metadata(image_path)
+
+    assert metadata.exif_orientation == 6
+    assert metadata.camera_make == "Canon"
+    assert metadata.camera_model == "EOS Test"
+    assert metadata.date_taken == "2026:11:04 12:00:00"
+
+
+def test_extract_image_metadata_handles_malformed_exif(
+    tmp_path,
+    monkeypatch,
+):
+    image_path = tmp_path / "malformed.png"
+    create_test_image(image_path)
+
+    def broken_exif(self):
+        raise ValueError("Malformed EXIF data")
+
+    monkeypatch.setattr(Image.Image, "getexif", broken_exif)
+
+    metadata = extract_image_metadata(image_path)
+
+    assert metadata.width == 200
+    assert metadata.height == 200
+    assert metadata.exif_orientation is None
+    assert metadata.camera_make is None
+    assert metadata.camera_model is None
+    assert metadata.date_taken is None
+
+
+def test_extract_image_metadata_missing_file(tmp_path):
+    image_path = tmp_path / "missing.png"
+
+    with pytest.raises(FileNotFoundError):
+        extract_image_metadata(image_path)
+
+
+def test_image_metadata_is_immutable(tmp_path):
+    image_path = tmp_path / "immutable.png"
+    create_test_image(image_path)
+
+    metadata = extract_image_metadata(image_path)
+
+    with pytest.raises(AttributeError):
+        metadata.width = 999

@@ -11,6 +11,56 @@ from PIL import Image, ImageOps
 
 
 @dataclass(frozen=True)
+class ImageMetadata:
+    """Metadata extracted from an image file."""
+
+    path: Path
+    file_size: int
+    width: int
+    height: int
+    format: str | None
+    mode: str
+    exif_orientation: int | None
+    camera_make: str | None
+    camera_model: str | None
+    date_taken: str | None
+
+def extract_image_metadata(
+    image_path: str | Path,
+) -> ImageMetadata:
+    """Extract basic image and EXIF metadata."""
+    path = Path(image_path)
+    file_size = path.stat().st_size
+
+    with Image.open(path) as image:
+        try:
+            exif = image.getexif()
+
+            orientation = exif.get(274)
+            camera_make = exif.get(271)
+            camera_model = exif.get(272)
+            date_taken = exif.get(36867) or exif.get(306)
+
+        except (OSError, ValueError, TypeError):
+            orientation = None
+            camera_make = None
+            camera_model = None
+            date_taken = None
+
+        return ImageMetadata(
+            path=path,
+            file_size=file_size,
+            width=image.width,
+            height=image.height,
+            format=image.format,
+            mode=image.mode,
+            exif_orientation=orientation,
+            camera_make=str(camera_make).strip() if camera_make else None,
+            camera_model=str(camera_model).strip() if camera_model else None,
+            date_taken=str(date_taken).strip() if date_taken else None,
+        )
+
+@dataclass(frozen=True)
 class ImageComparison:
     """Evidence produced by comparing two images."""
 
