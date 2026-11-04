@@ -1,0 +1,36 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# Application data
+*.db
+*.sqlite
+*.sqlite3
+/cache/
+/quarantine/
+/logs/
+
+# AI models
+/models/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# Build output
+/dist/
+*.spec
+
+# Environment secrets
+.env
+.env.*
+!.env.example
