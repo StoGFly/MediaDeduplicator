@@ -1,14 +1,67 @@
-
 """Tests for perceptual image hashing."""
+
+from pathlib import Path
 
 import imagehash
 import pytest
 from PIL import Image, ImageDraw
 
 from mediadedup.detectors.image import (
+    ImageComparison,
+    compare_images,
+    find_similar_image_pairs,
     hamming_distance,
+    meets_similarity_threshold,
     perceptual_hash,
 )
+
+
+def make_comparison(similarity_percent):
+    """Create comparison evidence for threshold tests."""
+    return ImageComparison(
+        path_a=Path("image_a.png"),
+        path_b=Path("image_b.png"),
+        hash_a="0000000000000000",
+        hash_b="0000000000000001",
+        distance=6,
+        hash_bits=64,
+        similarity_percent=similarity_percent,
+    )
+
+
+def test_similarity_threshold_accepts_exact_boundary():
+    comparison = make_comparison(90.625)
+
+    assert meets_similarity_threshold(comparison, 90.625)
+
+
+def test_similarity_threshold_accepts_above_threshold():
+    comparison = make_comparison(90.625)
+
+    assert meets_similarity_threshold(comparison, 90.0)
+
+
+def test_similarity_threshold_rejects_below_threshold():
+    comparison = make_comparison(90.625)
+
+    assert not meets_similarity_threshold(comparison, 91.0)
+
+
+def test_similarity_threshold_uses_default_value():
+    comparison = make_comparison(85.0)
+
+    assert meets_similarity_threshold(comparison)
+
+
+@pytest.mark.parametrize(
+    "threshold",
+    [-1.0, 100.1, float("nan"), float("inf"), float("-inf")],
+)
+def test_similarity_threshold_rejects_invalid_values(threshold):
+    comparison = make_comparison(90.0)
+
+    with pytest.raises(ValueError):
+        meets_similarity_threshold(comparison, threshold)
 
 
 def create_test_image(path, size=(200, 200)):
@@ -103,3 +156,149 @@ def test_hamming_distance_returns_exact_bit_difference():
     hash_b = imagehash.hex_to_hash("0000000000000001")
 
     assert hamming_distance(hash_a, hash_b) == 1
+
+
+def test_compare_images_returns_comparison_evidence(tmp_path):
+    image_a = tmp_path / "photo_a.png"
+    image_b = tmp_path / "photo_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    result = compare_images(image_a, image_b)
+
+    assert isinstance(result, ImageComparison)
+    assert result.path_a == image_a
+    assert result.path_b == image_b
+    assert result.hash_a
+    assert result.hash_b
+    assert result.distance == 0
+    assert result.hash_bits == 64
+    assert result.similarity_percent == 100.0
+
+
+def test_compare_images_calculates_similarity_percentage(tmp_path):
+    image_a = tmp_path / "original.png"
+    image_b = tmp_path / "resized.jpg"
+
+    create_test_image(image_a)
+
+    with Image.open(image_a) as original:
+        resized = original.resize(
+            (100, 100),
+            Image.Resampling.LANCZOS,
+        )
+        resized.save(image_b, quality=70)
+
+    result = compare_images(image_a, image_b)
+
+    expected = (
+        (result.hash_bits - result.distance)
+        / result.hash_bits
+    ) * 100
+
+    assert result.similarity_percent == expected
+    assert 0 <= result.similarity_percent <= 100
+
+def test_find_similar_image_pairs_finds_identical_images(tmp_path):
+    image_a = tmp_path / "photo_a.png"
+    image_b = tmp_path / "photo_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    results = find_similar_image_pairs(
+        [image_a, image_b],
+        minimum_similarity=85.0,
+    )
+
+    assert len(results) == 1
+    assert results[0].path_a == image_a
+    assert results[0].path_b == image_b
+    assert results[0].similarity_percent == 100.0
+
+
+def test_find_similar_image_pairs_filters_below_threshold(tmp_path):
+    image_a = tmp_path / "photo.png"
+    image_b = tmp_path / "checkerboard.png"
+
+    create_test_image(image_a)
+    create_checkerboard(image_b)
+
+    results = find_similar_image_pairs(
+        [image_a, image_b],
+        minimum_similarity=100.0,
+    )
+
+    assert results == []
+
+
+def test_find_similar_image_pairs_returns_no_pairs_for_one_image(tmp_path):
+    image_a = tmp_path / "photo.png"
+    create_test_image(image_a)
+
+    results = find_similar_image_pairs([image_a])
+
+    assert results == []
+
+
+def test_find_similar_image_pairs_returns_no_pairs_for_empty_input():
+    assert find_similar_image_pairs([]) == []
+
+
+def test_find_similar_image_pairs_removes_repeated_paths(tmp_path):
+    image_a = tmp_path / "photo.png"
+    create_test_image(image_a)
+
+    results = find_similar_image_pairs(
+        [image_a, image_a, image_a]
+    )
+
+    assert results == []
+
+
+def test_find_similar_image_pairs_rejects_invalid_threshold():
+    with pytest.raises(ValueError):
+        find_similar_image_pairs([], minimum_similarity=101.0)
+
+
+def test_find_similar_image_pairs_rejects_invalid_hash_size():
+    with pytest.raises(ValueError):
+        find_similar_image_pairs([], hash_size=0)
+
+
+def test_find_similar_image_pairs_hashes_each_image_once(
+    tmp_path,
+    monkeypatch,
+):
+    import mediadedup.detectors.image as image_detector
+
+    image_paths = [
+        tmp_path / "photo_a.png",
+        tmp_path / "photo_b.png",
+        tmp_path / "photo_c.png",
+    ]
+
+    for image_path in image_paths:
+        create_test_image(image_path)
+
+    original_function = image_detector.perceptual_hash
+    hash_calls = []
+
+    def counting_hash(image_path, hash_size=8):
+        hash_calls.append(Path(image_path))
+        return original_function(image_path, hash_size)
+
+    monkeypatch.setattr(
+        image_detector,
+        "perceptual_hash",
+        counting_hash,
+    )
+
+    image_detector.find_similar_image_pairs(
+        image_paths,
+        minimum_similarity=85.0,
+    )
+
+    assert len(hash_calls) == 3
+    assert set(hash_calls) == set(image_paths)

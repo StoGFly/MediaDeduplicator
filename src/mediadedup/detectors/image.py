@@ -1,9 +1,26 @@
 """Perceptual image similarity detection."""
 
+import math
+from collections.abc import Iterable
+from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 
 import imagehash
 from PIL import Image, ImageOps
+
+
+@dataclass(frozen=True)
+class ImageComparison:
+    """Evidence produced by comparing two images."""
+
+    path_a: Path
+    path_b: Path
+    hash_a: str
+    hash_b: str
+    distance: int
+    hash_bits: int
+    similarity_percent: float
 
 
 def perceptual_hash(
@@ -29,4 +46,138 @@ def hamming_distance(
     hash_b: imagehash.ImageHash,
 ) -> int:
     """Return the number of differing bits between two hashes."""
-    return hash_a - hash_b
+    return int(hash_a - hash_b)
+
+
+def compare_images(
+    file_a: str | Path,
+    file_b: str | Path,
+    hash_size: int = 8,
+) -> ImageComparison:
+    """Compare two images and return their similarity evidence."""
+    path_a = Path(file_a)
+    path_b = Path(file_b)
+
+    hash_a = perceptual_hash(path_a, hash_size)
+    hash_b = perceptual_hash(path_b, hash_size)
+
+    distance = hamming_distance(hash_a, hash_b)
+    hash_bits = hash_a.hash.size
+
+    similarity_percent = (
+        (hash_bits - distance) / hash_bits
+    ) * 100
+
+    return ImageComparison(
+        path_a=path_a,
+        path_b=path_b,
+        hash_a=str(hash_a),
+        hash_b=str(hash_b),
+        distance=distance,
+        hash_bits=hash_bits,
+        similarity_percent=similarity_percent,
+    )
+
+
+def meets_similarity_threshold(
+    comparison: ImageComparison,
+    minimum_similarity: float = 85.0,
+) -> bool:
+    """Check whether an image comparison meets a minimum similarity.
+
+    Args:
+        comparison: Image comparison evidence.
+        minimum_similarity: Required similarity percentage (0–100).
+
+    Returns:
+        True if the comparison meets or exceeds the threshold.
+
+    Raises:
+        ValueError: If the threshold is outside 0–100 or not finite.
+    """
+    if (
+        not math.isfinite(minimum_similarity)
+        or not 0.0 <= minimum_similarity <= 100.0
+    ):
+        raise ValueError(
+            "minimum_similarity must be between 0 and 100"
+        )
+
+    return comparison.similarity_percent >= minimum_similarity
+
+
+def find_similar_image_pairs(
+    file_paths: Iterable[str | Path],
+    minimum_similarity: float = 85.0,
+    hash_size: int = 8,
+) -> list[ImageComparison]:
+    """Find image pairs meeting the minimum similarity threshold.
+
+    Each image is hashed once. Every unique pair is compared once.
+
+    Args:
+        file_paths: Image paths to compare.
+        minimum_similarity: Minimum accepted similarity percentage.
+        hash_size: Perceptual hash size.
+
+    Returns:
+        Matching image pairs, sorted by descending similarity.
+
+    Raises:
+        ValueError: If the threshold or hash size is invalid.
+        OSError: If an image cannot be opened or read.
+    """
+    if (
+        not math.isfinite(minimum_similarity)
+        or not 0.0 <= minimum_similarity <= 100.0
+    ):
+        raise ValueError(
+            "minimum_similarity must be between 0 and 100"
+        )
+
+    if hash_size <= 0:
+        raise ValueError("hash_size must be greater than zero")
+
+    paths = list(dict.fromkeys(Path(path) for path in file_paths))
+
+    # Calculate each image hash only once.
+    hashes = {
+        path: perceptual_hash(path, hash_size)
+        for path in paths
+    }
+
+    matching_pairs = []
+
+    for path_a, path_b in combinations(paths, 2):
+        hash_a = hashes[path_a]
+        hash_b = hashes[path_b]
+
+        distance = hamming_distance(hash_a, hash_b)
+        hash_bits = hash_a.hash.size
+
+        similarity_percent = (
+            (hash_bits - distance) / hash_bits
+        ) * 100
+
+        comparison = ImageComparison(
+            path_a=path_a,
+            path_b=path_b,
+            hash_a=str(hash_a),
+            hash_b=str(hash_b),
+            distance=distance,
+            hash_bits=hash_bits,
+            similarity_percent=similarity_percent,
+        )
+
+        if meets_similarity_threshold(
+            comparison,
+            minimum_similarity,
+        ):
+            matching_pairs.append(comparison)
+
+    matching_pairs.sort(
+        key=lambda comparison: comparison.similarity_percent,
+        reverse=True,
+    )
+
+    return matching_pairs
