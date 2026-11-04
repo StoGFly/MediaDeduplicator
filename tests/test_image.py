@@ -10,6 +10,8 @@ from mediadedup.detectors.image import (
     ImageComparison,
     ImageMetadata,
     compare_images,
+    compare_images_dhash,
+    difference_hash,
     extract_image_metadata,
     find_similar_image_pairs,
     hamming_distance,
@@ -380,3 +382,99 @@ def test_image_metadata_is_immutable(tmp_path):
 
     with pytest.raises(AttributeError):
         metadata.width = 999
+
+def test_difference_hash_returns_image_hash(tmp_path):
+    image_path = tmp_path / "image.png"
+    create_test_image(image_path)
+
+    result = difference_hash(image_path)
+
+    assert isinstance(result, imagehash.ImageHash)
+    assert result.hash.size == 64
+
+
+def test_difference_hash_identical_images(tmp_path):
+    image_a = tmp_path / "image_a.png"
+    image_b = tmp_path / "image_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    hash_a = difference_hash(image_a)
+    hash_b = difference_hash(image_b)
+
+    assert hamming_distance(hash_a, hash_b) == 0
+
+
+def test_difference_hash_different_images(tmp_path):
+    image_a = tmp_path / "solid.png"
+    image_b = tmp_path / "gradient.png"
+
+    Image.new("RGB", (200, 200), "black").save(image_a)
+
+    gradient = Image.new("L", (200, 200))
+    for x in range(200):
+        for y in range(200):
+            gradient.putpixel((x, y), x)
+    gradient.convert("RGB").save(image_b)
+
+    hash_a = difference_hash(image_a)
+    hash_b = difference_hash(image_b)
+
+    assert hamming_distance(hash_a, hash_b) > 0
+
+
+def test_difference_hash_invalid_hash_size(tmp_path):
+    image_path = tmp_path / "image.png"
+    create_test_image(image_path)
+
+    with pytest.raises(ValueError):
+        difference_hash(image_path, hash_size=0)
+
+def test_compare_images_dhash_identical(tmp_path):
+    image_a = tmp_path / "image_a.png"
+    image_b = tmp_path / "image_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    comparison = compare_images_dhash(image_a, image_b)
+
+    assert isinstance(comparison, ImageComparison)
+    assert comparison.distance == 0
+    assert comparison.hash_bits == 64
+    assert comparison.similarity_percent == 100.0
+
+
+def test_compare_images_dhash_different(tmp_path):
+    image_a = tmp_path / "solid.png"
+    image_b = tmp_path / "gradient.png"
+
+    Image.new("RGB", (200, 200), "black").save(image_a)
+
+    gradient = Image.new("L", (200, 200))
+    for x in range(200):
+        for y in range(200):
+            gradient.putpixel((x, y), x)
+    gradient.convert("RGB").save(image_b)
+
+    comparison = compare_images_dhash(image_a, image_b)
+
+    assert comparison.distance > 0
+    assert comparison.similarity_percent < 100.0
+
+
+def test_compare_images_dhash_evidence(tmp_path):
+    image_a = tmp_path / "image_a.png"
+    image_b = tmp_path / "image_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    comparison = compare_images_dhash(image_a, image_b)
+
+    assert comparison.path_a == image_a
+    assert comparison.path_b == image_b
+    assert len(comparison.hash_a) == 16
+    assert len(comparison.hash_b) == 16
+    assert comparison.hash_bits == 64

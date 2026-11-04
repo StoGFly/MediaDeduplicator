@@ -91,6 +91,24 @@ def perceptual_hash(
         return imagehash.phash(image, hash_size=hash_size)
 
 
+def difference_hash(
+    image_path: str | Path,
+    hash_size: int = 8,
+) -> imagehash.ImageHash:
+    """Calculate a difference hash (dHash) for an image.
+
+    EXIF orientation is applied before hashing so that rotated
+    camera images are compared in their correct orientation.
+    """
+    if hash_size <= 0:
+        raise ValueError("hash_size must be greater than zero")
+
+    with Image.open(image_path) as image:
+        image = ImageOps.exif_transpose(image)
+        image = image.convert("RGB")
+        return imagehash.dhash(image, hash_size=hash_size)
+
+
 def hamming_distance(
     hash_a: imagehash.ImageHash,
     hash_b: imagehash.ImageHash,
@@ -110,6 +128,36 @@ def compare_images(
 
     hash_a = perceptual_hash(path_a, hash_size)
     hash_b = perceptual_hash(path_b, hash_size)
+
+    distance = hamming_distance(hash_a, hash_b)
+    hash_bits = hash_a.hash.size
+
+    similarity_percent = (
+        (hash_bits - distance) / hash_bits
+    ) * 100
+
+    return ImageComparison(
+        path_a=path_a,
+        path_b=path_b,
+        hash_a=str(hash_a),
+        hash_b=str(hash_b),
+        distance=distance,
+        hash_bits=hash_bits,
+        similarity_percent=similarity_percent,
+    )
+
+
+def compare_images_dhash(
+    file_a: str | Path,
+    file_b: str | Path,
+    hash_size: int = 8,
+) -> ImageComparison:
+    """Compare two images using difference hashing."""
+    path_a = Path(file_a)
+    path_b = Path(file_b)
+
+    hash_a = difference_hash(path_a, hash_size)
+    hash_b = difference_hash(path_b, hash_size)
 
     distance = hamming_distance(hash_a, hash_b)
     hash_bits = hash_a.hash.size
