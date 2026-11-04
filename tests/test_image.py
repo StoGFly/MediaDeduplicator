@@ -530,6 +530,23 @@ def test_compare_images_ssim_different_sizes(tmp_path):
     assert comparison.similarity_percent > 95.0
 
 
+def test_compare_images_ssim_rotated_image(tmp_path):
+    image_a = tmp_path / "landscape.png"
+    image_b = tmp_path / "portrait.png"
+
+    create_test_image(image_a, size=(200, 100))
+
+    # Create a counter-clockwise rotated copy.
+    with Image.open(image_a) as original:
+        rotated = original.transpose(Image.Transpose.ROTATE_90)
+        rotated.save(image_b)
+
+    comparison = compare_images_ssim(image_a, image_b)
+
+    assert comparison.similarity_percent > 99.0
+    assert comparison.rotation_degrees == 90
+
+
 def test_compare_images_ssim_rejects_incompatible_aspect_ratios(
     tmp_path,
 ):

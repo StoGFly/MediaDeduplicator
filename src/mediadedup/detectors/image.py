@@ -78,12 +78,13 @@ class ImageComparison:
 
 @dataclass(frozen=True)
 class SSIMComparison:
-    """Evidence produced by structural image comparison."""
+    """Structural similarity comparison between two images."""
 
     path_a: Path
     path_b: Path
     similarity_score: float
     similarity_percent: float
+    rotation_degrees: int = 0
 
 
 def compare_images_ssim(
@@ -96,59 +97,84 @@ def compare_images_ssim(
     path_a = Path(file_a)
     path_b = Path(file_b)
 
-    with Image.open(path_a) as image_a:
-        image_a = ImageOps.exif_transpose(image_a)
-        image_a = image_a.convert("L")
+    with Image.open(path_a) as source_a:
+        image_a = ImageOps.exif_transpose(source_a).convert("L")
 
-        with Image.open(path_b) as image_b:
-            image_b = ImageOps.exif_transpose(image_b)
-            image_b = image_b.convert("L")
+        with Image.open(path_b) as source_b:
+            image_b = ImageOps.exif_transpose(source_b).convert("L")
 
-            # Check whether the images have compatible proportions.
             ratio_a = image_a.width / image_a.height
             ratio_b = image_b.width / image_b.height
 
-            if not math.isclose(
+            # Check whether the images have compatible proportions.
+            normal_match = math.isclose(
                 ratio_a,
                 ratio_b,
                 rel_tol=0.02,
-            ):
+            )
+            rotated_match = math.isclose(
+                ratio_a,
+                1 / ratio_b,
+                rel_tol=0.02,
+            )
+
+            if not normal_match and not rotated_match:
                 raise ValueError(
                     "Images have incompatible aspect ratios"
                 )
 
-            # Use the smaller image dimensions as a common canvas.
-            target_width = min(image_a.width, image_b.width)
-            target_height = min(image_a.height, image_b.height)
+            # Choose the common canvas dimensions.
+            if normal_match:
+                target_width = min(image_a.width, image_b.width)
+                target_height = min(image_a.height, image_b.height)
+                rotations = [0]
+            else:
+                target_width = min(image_a.width, image_b.height)
+                target_height = min(image_a.height, image_b.width)
+                rotations = [90, 270]
 
             if min(target_width, target_height) < 7:
                 raise ValueError(
                     "Images must be at least 7 pixels wide and high"
                 )
 
-            # Fit each image without changing its aspect ratio.
-            image_a = ImageOps.pad(
+            reference = ImageOps.pad(
                 image_a,
                 (target_width, target_height),
                 method=Image.Resampling.LANCZOS,
             )
-            image_b = ImageOps.pad(
-                image_b,
-                (target_width, target_height),
-                method=Image.Resampling.LANCZOS,
-            )
 
-            score = structural_similarity(
-                np.asarray(image_a),
-                np.asarray(image_b),
-                data_range=255,
-            )
+            best_score = -1.0
+            best_rotation = 0
+
+            for rotation in rotations:
+                candidate = image_b.rotate(
+                    -rotation,
+                    expand=True,
+                )
+
+                candidate = ImageOps.pad(
+                    candidate,
+                    (target_width, target_height),
+                    method=Image.Resampling.LANCZOS,
+                )
+
+                score = structural_similarity(
+                    np.asarray(reference),
+                    np.asarray(candidate),
+                    data_range=255,
+                )
+
+                if score > best_score:
+                    best_score = score
+                    best_rotation = rotation
 
     return SSIMComparison(
         path_a=path_a,
         path_b=path_b,
-        similarity_score=float(score),
-        similarity_percent=float(score * 100),
+        similarity_score=float(best_score),
+        similarity_percent=float(best_score * 100),
+        rotation_degrees=best_rotation,
     )
 
 
