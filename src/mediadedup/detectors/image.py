@@ -7,6 +7,8 @@ from itertools import combinations
 from pathlib import Path
 
 import imagehash
+import numpy as np
+
 from PIL import Image, ImageOps
 
 
@@ -60,6 +62,7 @@ def extract_image_metadata(
             date_taken=str(date_taken).strip() if date_taken else None,
         )
 
+
 @dataclass(frozen=True)
 class ImageComparison:
     """Evidence produced by comparing two images."""
@@ -71,6 +74,82 @@ class ImageComparison:
     distance: int
     hash_bits: int
     similarity_percent: float
+
+
+@dataclass(frozen=True)
+class SSIMComparison:
+    """Evidence produced by structural image comparison."""
+
+    path_a: Path
+    path_b: Path
+    similarity_score: float
+    similarity_percent: float
+
+
+def compare_images_ssim(
+    file_a: str | Path,
+    file_b: str | Path,
+) -> SSIMComparison:
+    """Compare two images using structural similarity (SSIM)."""
+    from skimage.metrics import structural_similarity
+
+    path_a = Path(file_a)
+    path_b = Path(file_b)
+
+    with Image.open(path_a) as image_a:
+        image_a = ImageOps.exif_transpose(image_a)
+        image_a = image_a.convert("L")
+
+        with Image.open(path_b) as image_b:
+            image_b = ImageOps.exif_transpose(image_b)
+            image_b = image_b.convert("L")
+
+            # Check whether the images have compatible proportions.
+            ratio_a = image_a.width / image_a.height
+            ratio_b = image_b.width / image_b.height
+
+            if not math.isclose(
+                ratio_a,
+                ratio_b,
+                rel_tol=0.02,
+            ):
+                raise ValueError(
+                    "Images have incompatible aspect ratios"
+                )
+
+            # Use the smaller image dimensions as a common canvas.
+            target_width = min(image_a.width, image_b.width)
+            target_height = min(image_a.height, image_b.height)
+
+            if min(target_width, target_height) < 7:
+                raise ValueError(
+                    "Images must be at least 7 pixels wide and high"
+                )
+
+            # Fit each image without changing its aspect ratio.
+            image_a = ImageOps.pad(
+                image_a,
+                (target_width, target_height),
+                method=Image.Resampling.LANCZOS,
+            )
+            image_b = ImageOps.pad(
+                image_b,
+                (target_width, target_height),
+                method=Image.Resampling.LANCZOS,
+            )
+
+            score = structural_similarity(
+                np.asarray(image_a),
+                np.asarray(image_b),
+                data_range=255,
+            )
+
+    return SSIMComparison(
+        path_a=path_a,
+        path_b=path_b,
+        similarity_score=float(score),
+        similarity_percent=float(score * 100),
+    )
 
 
 def perceptual_hash(

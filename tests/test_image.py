@@ -9,8 +9,10 @@ from PIL import Image, ImageDraw
 from mediadedup.detectors.image import (
     ImageComparison,
     ImageMetadata,
+    SSIMComparison,
     compare_images,
     compare_images_dhash,
+    compare_images_ssim,
     difference_hash,
     extract_image_metadata,
     find_similar_image_pairs,
@@ -478,3 +480,81 @@ def test_compare_images_dhash_evidence(tmp_path):
     assert len(comparison.hash_a) == 16
     assert len(comparison.hash_b) == 16
     assert comparison.hash_bits == 64
+
+
+def test_compare_images_ssim_identical(tmp_path):
+    image_a = tmp_path / "image_a.png"
+    image_b = tmp_path / "image_b.png"
+
+    create_test_image(image_a)
+    create_test_image(image_b)
+
+    comparison = compare_images_ssim(image_a, image_b)
+
+    assert isinstance(comparison, SSIMComparison)
+    assert comparison.path_a == image_a
+    assert comparison.path_b == image_b
+    assert comparison.similarity_score == pytest.approx(1.0)
+    assert comparison.similarity_percent == pytest.approx(100.0)
+
+
+def test_compare_images_ssim_different(tmp_path):
+    image_a = tmp_path / "photo.png"
+    image_b = tmp_path / "checkerboard.png"
+
+    create_test_image(image_a)
+    create_checkerboard(image_b)
+
+    comparison = compare_images_ssim(image_a, image_b)
+
+    assert comparison.similarity_score < 1.0
+    assert comparison.similarity_percent < 100.0
+
+
+def test_compare_images_ssim_different_sizes(tmp_path):
+    image_a = tmp_path / "large.png"
+    image_b = tmp_path / "small.png"
+
+    create_test_image(image_a)
+
+    with Image.open(image_a) as original:
+        resized = original.resize(
+            (100, 100),
+            Image.Resampling.LANCZOS,
+        )
+        resized.save(image_b)
+
+    comparison = compare_images_ssim(image_a, image_b)
+
+    assert comparison.similarity_score > 0.95
+    assert comparison.similarity_percent > 95.0
+
+
+def test_compare_images_ssim_rejects_incompatible_aspect_ratios(
+    tmp_path,
+):
+    image_a = tmp_path / "square.png"
+    image_b = tmp_path / "wide.png"
+
+    create_test_image(image_a, size=(200, 200))
+    create_test_image(image_b, size=(200, 100))
+
+    with pytest.raises(
+        ValueError,
+        match="incompatible aspect ratios",
+    ):
+        compare_images_ssim(image_a, image_b)
+
+
+def test_compare_images_ssim_rejects_tiny_images(tmp_path):
+    image_a = tmp_path / "tiny_a.png"
+    image_b = tmp_path / "tiny_b.png"
+
+    Image.new("RGB", (6, 6), "red").save(image_a)
+    Image.new("RGB", (6, 6), "red").save(image_b)
+
+    with pytest.raises(
+        ValueError,
+        match="at least 7 pixels",
+    ):
+        compare_images_ssim(image_a, image_b)
