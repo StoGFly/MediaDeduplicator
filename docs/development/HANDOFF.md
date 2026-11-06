@@ -28,38 +28,15 @@ Activate with:
 
 ## 3. Last verified Git checkpoint
 
-Branch: `main`
+The research checkpoint on `main` is [`111a6db`](https://github.com/StoGFly/MediaDeduplicator/commit/111a6db40f2ff115418bfe310d3a8f2c62282a44) (Add benchmark framework and ORB experiments 23-26).
 
-Latest recorded commit:
+This commit tracks the [benchmark framework](../../benchmarks/), the [curated pair labels](../../benchmarks/data/curated_pair_labels.csv), the [local media manifest builder](../../build_testmedia_manifest.py), and the scripts and notes for ORB experiments 23–26. The framework generates labelled pairs, runs detector comparisons and supports review of difficult negative pairs.
 
-`e1d87aa` - Add project continuity and ORB research documentation
+Git ignores `TestMedia/`, root-level `TestMedia_manifest_*.csv` inventories and `benchmarks/results/`. Keep personal media and generated outputs local.
 
-The current ORB research and documentation work is uncommitted.
+All 58 pytest tests passed on the local checkout of `111a6db` on 2026-11-06. Run standalone research scripts and benchmarks separately when verifying those workflows.
 
-Known modified files:
-- `.gitignore`
-- `AGENTS.md`
-- `PROJECT_STATUS.md`
-- `docs/development/HANDOFF.md`
-- `docs/experiments/ORB_RESEARCH.md`
-
-Known untracked work includes:
-- `benchmarks/`
-- `build_testmedia_manifest.py`
-- `docs/experiments/experiment_23_irregular_occlusion.py`
-- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
-- `docs/experiments/experiment_25_spatial_concentration.py`
-- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
-
-The canonical curated benchmark labels are stored at:
-
-`benchmarks/data/curated_pair_labels.csv`
-
-Always inspect the current repository state before proceeding.
-
-Do not stage, commit or push files without explicit user approval.
-
-Personal media in `TestMedia/` must remain excluded from Git.
+Inspect the current repository state before proceeding. Explicit user approval is required to stage, commit or push.
 
 ## 4. Current development phase
 
@@ -67,9 +44,9 @@ The project is investigating ORB feature matching using OpenCV.
 
 This remains research only.
 
-ORB has not been integrated into production source code, and no production ORB tests have been written.
+The [ORB benchmark detector](../../benchmarks/orb_detector.py) is experimental. The production scan and pytest suite have no ORB integration.
 
-Research scripts for Experiments 23–26 are stored in:
+Research scripts for experiments 21–26 are stored in:
 
 `docs/experiments/`
 

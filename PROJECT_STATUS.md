@@ -47,40 +47,15 @@ Optional image-quality dependency:
 
 ## 3. Git status and milestones
 
-Main branch: `main`
+The research checkpoint on `main` is [`111a6db`](https://github.com/StoGFly/MediaDeduplicator/commit/111a6db40f2ff115418bfe310d3a8f2c62282a44) (Add benchmark framework and ORB experiments 23-26).
 
-Latest recorded commit:
+The [benchmark framework](benchmarks/) includes deterministic labelled pair generation, shared image loading, adapters for the existing image similarity detectors, and experimental ORB comparisons and review tools for difficult negative pairs. The [curated pair labels](benchmarks/data/curated_pair_labels.csv) are tracked separately from the local media.
 
-`e1d87aa` - Add project continuity and ORB research documentation
+The checkpoint also includes the [local media manifest builder](build_testmedia_manifest.py) and the scripts and research notes for ORB experiments 23–26.
 
-The current research and documentation work has not yet been committed.
+Git ignores personal media under `TestMedia/`, generated `TestMedia_manifest_*.csv` inventories at the repository root, and local outputs under `benchmarks/results/`. Keep these files local.
 
-At the latest inspection, the working tree contained modified documentation and configuration files, along with new research scripts and benchmark files.
-
-Known modified files:
-- `.gitignore`
-- `AGENTS.md`
-- `PROJECT_STATUS.md`
-- `docs/development/HANDOFF.md`
-- `docs/experiments/ORB_RESEARCH.md`
-
-Known untracked work includes:
-- `benchmarks/`
-- `build_testmedia_manifest.py`
-- `docs/experiments/experiment_23_irregular_occlusion.py`
-- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
-- `docs/experiments/experiment_25_spatial_concentration.py`
-- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
-
-The curated benchmark labels have a canonical copy at:
-
-`benchmarks/data/curated_pair_labels.csv`
-
-Do not assume the above Git state remains current. Inspect the repository before staging or committing anything.
-
-Personal test media must remain outside Git. `TestMedia/` is excluded by `.gitignore`.
-
-No files should be staged, committed or pushed without explicit user approval.
+Inspect the current branch and working tree before staging changes. Explicit user approval is required to stage, commit or push.
 
 ## 4. Implemented functionality
 
@@ -127,13 +102,9 @@ Do not assume a globally installed `mediadedup` executable is available.
 
 ## 5. Testing status
 
-Previously verified:
-- Full project test suite: 58 tests passed.
-- Image test suite: 43 tests passed at the last recorded image milestone.
+All 58 pytest tests passed on the local checkout of `111a6db` on 2026-11-06. Standalone research scripts and benchmark runs require separate verification.
 
-These are historical results, not confirmation of the current test state.
-
-Run the tests again before making claims about current test status:
+To rerun the suite:
 
 ```powershell
 python -m pytest -v
@@ -184,6 +155,8 @@ These safeguards are research-script acceptance conditions, not established prod
 ### Experimental findings
 
 The experiments have investigated:
+- Brightness and contrast changes and JPEG compression.
+- Unrelated taxi photographs as negative controls.
 - Cropping and partial-image matching.
 - Rotation and scaling.
 - Noise and blur.
@@ -210,36 +183,6 @@ The test collection remains limited. These results do not establish a general fa
 Investigate the spatial distribution and geometric reliability of matched keypoints and RANSAC inliers in both reference and candidate images.
 
 Do not integrate ORB into production code until the matching and acceptance rules have been validated against a larger, more diverse labelled dataset.
-
-### Current experimental baseline
-
-| Parameter | Experimental value |
-|---|---:|
-| ORB features | 2,000 |
-| Lowe ratio | 0.75 |
-| Mutual matching | Enabled |
-| RANSAC reprojection threshold | 5 pixels |
-| Geometric model | Partial affine |
-
-These values are experimental starting points, not final production defaults.
-
-### Experimental findings
-
-ORB has demonstrated promising matching behaviour with:
-- Cropped images.
-- Brightness and contrast changes.
-- JPEG compression.
-- Noise.
-- Blur.
-- Rotation.
-- Scaling.
-- Different image dimensions and formats.
-
-Unrelated taxi photographs have been used as negative controls.
-
-The experiments show why absolute inlier count, inlier ratio, spatial distribution and geometric validity must be considered together.
-
-A high inlier percentage alone is insufficient evidence of a genuine match.
 
 ## 7. GUI design direction
 
@@ -316,10 +259,4 @@ Do not integrate ORB into production code yet.
 
 ## 11. GitHub publication
 
-The intended repository is private:
-
-`StoGFly/MediaDeduplicator`
-
-MIT licence.
-
-Do not push further changes until the user explicitly approves publication of the current development work.
+`StoGFly/MediaDeduplicator` is public and uses the MIT licence. Push changes only with explicit user approval.
