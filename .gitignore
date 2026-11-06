@@ -38,3 +38,7 @@ htmlcov/
 
 # Personal test media — never commit
 /TestMedia/
+
+# Local benchmark outputs and personal media inventory
+/benchmarks/results/
+/TestMedia_manifest_*.csv

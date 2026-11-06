@@ -133,6 +133,17 @@ The GUI is intended to offer:
 - Sensible defaults.
 - Safeguards and explanations for settings that affect speed, sensitivity and false-positive risk.
 
+## AI tool availability
+
+Development must not depend on ChatGPT Work or Codex being available.
+
+When local computer-use or repository tools are unavailable:
+- Use PowerShell instructions executed by the user.
+- Work incrementally and inspect command output.
+- Never assume direct access to local files.
+- Do not claim to have modified or inspected files unless verified.
+- Keep all project changes under the user's control.
+
 ## Documentation maintenance
 
 Keep project documentation consistent with actual implementation.

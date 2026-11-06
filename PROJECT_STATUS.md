@@ -1,6 +1,6 @@
-# MediaDeduplicator — Project Status
+# MediaDeduplicator - Project Status
 
-Last updated: 2026-11-04
+Last updated: 2026-11-06
 
 ## 1. Project overview
 
@@ -8,7 +8,7 @@ MediaDeduplicator is a Windows-based media deduplication application.
 
 Project directory: `F:\MediaDeduplicator`
 
-Git repository: `StoGFly/MediaDeduplicator` (planned private GitHub repository).
+Git repository: `StoGFly/MediaDeduplicator` (public GitHub repository).
 
 The application is intended to identify exact duplicates and visually or acoustically similar media.
 
@@ -51,26 +51,36 @@ Main branch: `main`
 
 Latest recorded commit:
 
-`e1d87aa` — Add project continuity and ORB research documentation
+`e1d87aa` - Add project continuity and ORB research documentation
 
-Recorded development milestones:
+The current research and documentation work has not yet been committed.
 
-| Commit | Description |
-|---|---|
-| `7ef18f9` | Add exact duplicate scanning foundation |
-| `3a67838` | Add perceptual image hashing foundation |
-| `1b6c366` | Add image similarity threshold and pair scanning |
-| `f255d66` | Add image metadata extraction |
-| `ec81824` | Add difference hash image comparison |
-| `4507e1c` | Add structural similarity image comparison |
-| `e1d87aa` | Add project continuity and ORB research documentation |
+At the latest inspection, the working tree contained modified documentation and configuration files, along with new research scripts and benchmark files.
 
-At the last verified Git inspection:
-- No modified tracked files.
-- `TestMedia/` is untracked.
-- Personal sample media must remain outside Git.
+Known modified files:
+- `.gitignore`
+- `AGENTS.md`
+- `PROJECT_STATUS.md`
+- `docs/development/HANDOFF.md`
+- `docs/experiments/ORB_RESEARCH.md`
 
-Do not assume this Git state remains current. Inspect the repository before further work.
+Known untracked work includes:
+- `benchmarks/`
+- `build_testmedia_manifest.py`
+- `docs/experiments/experiment_23_irregular_occlusion.py`
+- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
+- `docs/experiments/experiment_25_spatial_concentration.py`
+- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
+
+The curated benchmark labels have a canonical copy at:
+
+`benchmarks/data/curated_pair_labels.csv`
+
+Do not assume the above Git state remains current. Inspect the repository before staging or committing anything.
+
+Personal test media must remain outside Git. `TestMedia/` is excluded by `.gitignore`.
+
+No files should be staged, committed or pushed without explicit user approval.
 
 ## 4. Implemented functionality
 
@@ -135,32 +145,71 @@ OpenCV ORB feature matching is being investigated as an additional image similar
 
 It is experimental and has not yet been integrated into production code.
 
-Investigations completed through 2026-11-04:
+Experiments completed: 1-26.
 
-1. Centred cropping.
-2. Unrelated-image negative controls.
-3. Asymmetric cropping.
-4. Aggressive cropping.
-5. Spatial distribution of matches.
-6. Geometric diagnostics.
-7. Homography corner mapping.
-8. Physical validity checks.
-9. Partial affine transformation.
-10. Lowe ratio sensitivity.
-11. Mutual matching.
-12. Mutual-match spatial coverage.
-13. Affine overlap analysis.
-14. RANSAC threshold sensitivity.
-15. Resolution sensitivity.
-16. ORB feature-count sensitivity.
-17. Feature-count positive and negative controls.
-18. Noise and blur resistance.
-19. Noise and blur negative controls.
-20. Rotation and scaling resistance.
-
-Detailed results should be maintained in:
+The detailed research record is maintained in:
 
 `docs/experiments/ORB_RESEARCH.md`
+
+### Recent experiments
+
+| Experiment | Subject |
+|---|---|
+| 21 | Combined rotation and scaling resistance |
+| 22 | Rectangular occlusion resistance |
+| 23 | Irregular occlusion resistance |
+| 24 | Feature-targeted occlusion |
+| 25 | Spatial concentration audit |
+| 26 | Grid resolution sensitivity |
+
+### Current experimental baseline
+
+| Parameter | Experimental value |
+|---|---:|
+| ORB features | 2,000 |
+| Lowe ratio | 0.75 |
+| Mutual matching | Enabled |
+| RANSAC reprojection threshold | 5 pixels |
+| Geometric model | Partial affine |
+| Spatial diagnostic grid | 20 x 20 |
+
+These are experimental starting points, not final production defaults.
+
+Experiments 23 and 24 use minimum evidence safeguards:
+- At least 8 mutual matches.
+- At least 6 RANSAC inliers.
+
+These safeguards are research-script acceptance conditions, not established production thresholds.
+
+### Experimental findings
+
+The experiments have investigated:
+- Cropping and partial-image matching.
+- Rotation and scaling.
+- Noise and blur.
+- Different image resolutions and formats.
+- Rectangular and irregular occlusion.
+- Deliberately feature-targeted occlusion.
+- Spatial concentration of detected keypoints.
+- Sensitivity to spatial grid resolution.
+
+Important findings:
+
+- Match count alone is insufficient.
+- Inlier ratio alone is insufficient.
+- A small number of inliers is not convincing evidence.
+- Synthetic feature-targeted occlusion can be substantially more damaging than random-area occlusion.
+- Keypoints can be heavily concentrated in a relatively small portion of an image.
+- Spatial concentration measurements depend on grid resolution and ranking method.
+- The spatial distribution of geometrically verified matches in both images requires further investigation.
+
+The test collection remains limited. These results do not establish a general false-positive rate, universal occlusion tolerance or production acceptance threshold.
+
+### Next research focus
+
+Investigate the spatial distribution and geometric reliability of matched keypoints and RANSAC inliers in both reference and candidate images.
+
+Do not integrate ORB into production code until the matching and acceptance rules have been validated against a larger, more diverse labelled dataset.
 
 ### Current experimental baseline
 
@@ -224,10 +273,10 @@ This GUI design is planned, not implemented.
 
 The following areas remain future work unless subsequent documentation or source inspection establishes otherwise:
 
-- ORB production detector.
-- Combined rotation and scaling experiments.
-- More extensive positive and negative image datasets.
-- Improved image similarity detection pipeline.
+- ORB production detector and matching pipeline.
+- Spatial distribution analysis of geometrically verified matches.
+- Larger and more diverse positive and negative image datasets.
+- Validation of matching and acceptance thresholds.
 - Video similarity using FFmpeg and sampled frames.
 - Audio similarity using Chromaprint.
 - Optional AI-assisted similarity using OpenCLIP.
@@ -250,22 +299,18 @@ The following areas remain future work unless subsequent documentation or source
 
 ## 10. Immediate next task
 
-Continue experimental ORB research.
+Continue ORB research, focusing on spatial distribution and geometric reliability.
 
-Completed experiments: **1–22**.
+Experiments completed: **1-26**.
 
-Next experiment:
+The next investigation should examine:
+- Spatial distribution of matched keypoints.
+- Spatial distribution of RANSAC inliers in both images.
+- Whether concentrated matches can produce misleading geometric agreement.
+- Minimum spatial coverage requirements.
+- Avoiding rejection of legitimate partial-image matches.
 
-**Experiment 23 — Irregular occlusion resistance.**
-
-Test irregular occlusion patterns, including:
-- Circular occlusion.
-- Multiple small rectangular occlusions.
-- Irregular polygon or free-form occlusion.
-
-Use the existing genuine positive and unrelated negative controls where practical.
-
-Record mutual matches, geometric inliers, inlier ratio, estimated scale and rotation.
+Expand the labelled positive and negative controls before deciding on production thresholds.
 
 Do not integrate ORB into production code yet.
 
@@ -277,4 +322,4 @@ The intended repository is private:
 
 MIT licence.
 
-The first GitHub push is intentionally deferred until the agreed development and testing milestones are ready.
+Do not push further changes until the user explicitly approves publication of the current development work.

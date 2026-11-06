@@ -1,6 +1,6 @@
-# MediaDeduplicator — Development Handoff
+# MediaDeduplicator - Development Handoff
 
-Last updated: 2026-11-04
+Last updated: 2026-11-06
 
 ## 1. Purpose
 
@@ -30,49 +30,62 @@ Activate with:
 
 Branch: `main`
 
-HEAD:
+Latest recorded commit:
 
-`e1d87aa` — Add project continuity and ORB research documentation
+`e1d87aa` - Add project continuity and ORB research documentation
 
-Recent history:
+The current ORB research and documentation work is uncommitted.
 
-```text
-e1d87aa Add project continuity and ORB research documentation
-4507e1c Add structural similarity image comparison
-ec81824 Add difference hash image comparison
-f255d66 Add image metadata extraction
-1b6c366 Add image similarity threshold and pair scanning
-3a67838 Add perceptual hash foundation
-7ef18f9 Add exact duplicate scanning foundation
-```
+Known modified files:
+- `.gitignore`
+- `AGENTS.md`
+- `PROJECT_STATUS.md`
+- `docs/development/HANDOFF.md`
+- `docs/experiments/ORB_RESEARCH.md`
 
-Last observed working tree:
+Known untracked work includes:
+- `benchmarks/`
+- `build_testmedia_manifest.py`
+- `docs/experiments/experiment_23_irregular_occlusion.py`
+- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
+- `docs/experiments/experiment_25_spatial_concentration.py`
+- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
 
-- No modified tracked files.
-- `TestMedia/` untracked.
-- Do not stage or commit `TestMedia/`.
+The canonical curated benchmark labels are stored at:
+
+`benchmarks/data/curated_pair_labels.csv`
 
 Always inspect the current repository state before proceeding.
 
+Do not stage, commit or push files without explicit user approval.
+
+Personal media in `TestMedia/` must remain excluded from Git.
+
 ## 4. Current development phase
 
-We are investigating ORB feature matching using OpenCV.
+The project is investigating ORB feature matching using OpenCV.
 
-This is research only.
+This remains research only.
 
-No production source files or tests have been changed during the ORB experiments.
+ORB has not been integrated into production source code, and no production ORB tests have been written.
 
-Experiments have been run as temporary PowerShell here-strings piped directly to Python.
+Research scripts for Experiments 23–26 are stored in:
 
-Actual sample files are in:
+`docs/experiments/`
+
+The research media is stored under:
 
 `F:\MediaDeduplicator\TestMedia`
 
 The contact sheet is for visual reference only and must not be used as an image comparison input.
 
+The detailed research record is:
+
+`docs/experiments/ORB_RESEARCH.md`
+
 ## 5. ORB experimental configuration
 
-Current baseline:
+Current research baseline:
 
 - ORB features: 2,000.
 - Lowe ratio: 0.75.
@@ -81,106 +94,162 @@ Current baseline:
 - Geometric model: `cv2.estimateAffinePartial2D`.
 - Descriptor matching: Hamming distance.
 - OpenCV version observed: 5.0.0.
+- Spatial diagnostic grid: 20 x 20.
 
-These are provisional experimental settings.
+Experiments 23 and 24 use minimum evidence safeguards:
+
+- At least 8 mutual matches.
+- At least 6 RANSAC inliers.
+
+These are experimental safeguards, not production acceptance thresholds.
+
+All parameters remain provisional.
 
 ## 6. Research findings to date
 
-ORB experiments have investigated:
+Experiments completed: 1–26.
 
-- Cropping.
+The research has investigated:
+
+- Cropping and partial-image matching.
 - Negative controls.
 - Spatial distribution.
-- Homography degeneracy.
-- Partial affine transformation.
-- Lowe ratio threshold.
+- Homography and affine degeneracy.
+- Lowe ratio sensitivity.
 - Mutual matching.
-- Spatial coverage.
-- Affine overlap.
-- RANSAC threshold.
+- Geometric overlap.
+- RANSAC threshold sensitivity.
 - Resolution and downscaling.
-- Feature count.
+- Feature-count sensitivity.
 - Noise and blur.
 - Rotation and scaling.
+- Rectangular and irregular occlusion.
+- Feature-targeted occlusion.
+- Spatial concentration.
+- Grid resolution sensitivity.
 
 ### Important findings
 
 1. Genuine cropped copies can retain strong geometric matching even when much of the original image is missing.
 2. Tiny retained regions can produce uncertain results.
 3. Homography and affine models can produce degenerate solutions.
-4. Two geometric inliers are not sufficient evidence of a genuine match.
+4. A small number of geometric inliers is not sufficient evidence of a genuine match.
 5. High inlier ratio alone is not sufficient.
 6. Spatial coverage and geometric validity matter.
 7. Mutual matching removes many ambiguous feature correspondences.
 8. Downscaling can sometimes improve matching by suppressing fine image differences.
 9. Increasing feature count increases genuine matches but can also introduce ambiguous correspondences.
-10. Noise and blur reduce genuine matches, but our current unrelated taxi controls remain weak.
-11. Rotation and scaling are handled impressively well in the current positive tests.
+10. Noise and blur reduce genuine matches in the tested examples.
+11. Rotation and scaling are handled well in the current positive tests.
+12. Irregular synthetic occlusion can be tolerated when sufficient useful features remain.
+13. Deliberately targeting feature-rich regions can be much more damaging than randomly hiding the same image area.
+14. ORB keypoints can be strongly concentrated in a small portion of an image.
+15. Measured spatial concentration depends on grid resolution and ranking method.
 
-Detailed experiment results belong in `docs/experiments/ORB_RESEARCH.md`.
+### Current research direction
 
-## 7. Latest completed experiment
+The next important question is how well the geometrically verified matches are distributed across both images.
 
-### Experiment 20 — Rotation and scaling resistance
+A high number of matches concentrated in a small region may not provide sufficient evidence that two entire images represent the same underlying photograph.
 
-Genuine exact-copy variant:
+However, overly strict spatial coverage requirements could reject legitimate cropped or partially overlapping images.
 
-Rotation:
-- 15°: 187 inliers.
-- 30°: 204 inliers.
-- 45°: 188 inliers.
-- 90°: 247 inliers.
-- 180°: 235 inliers.
+This trade-off requires further research.
 
-Scaling:
-- 0.50×: 115 inliers.
-- 0.75×: 107 inliers.
-- 1.25×: 177 inliers.
-- 1.50×: 150 inliers.
-- 2.00×: 75 inliers.
+The positive and negative image collection is still limited. Do not claim a general false-positive rate or universal matching threshold.
 
-Estimated rotations and scales were close to the applied transformations.
+## 7. Latest completed experiments
 
-The two unrelated taxi photographs remained weak negative controls, producing at most two geometric inliers in the reported tests.
+### Experiment 21 - Combined rotation and scaling
+
+Tested four combinations of rotation and scaling.
+
+The genuine positive control retained strong geometric matching across all four transformations. Estimated rotation and scale were close to the applied transformations.
+
+Two unrelated taxi controls remained weak, producing at most three and two inliers respectively.
+
+### Experiment 22 - Rectangular occlusion resistance
+
+Tested central and right-edge black rectangular masks covering up to 50% of the image.
+
+The exact-copy positive control retained 187 inliers with 50% central occlusion and 240 inliers with 50% edge occlusion.
+
+Only one genuine photograph and two unrelated negative photographs were used.
+
+### Experiment 23 - Irregular occlusion resistance
+
+Tested circular masks, multiple rectangles and irregular polygons.
+
+The experiment used minimum evidence safeguards of 8 mutual matches and 6 RANSAC inliers.
+
+The genuine positive controls retained substantial geometric evidence under the tested masks. Negative controls remained weak.
+
+### Experiment 24 - Feature-targeted occlusion
+
+Compared random-area occlusion with occlusion targeting feature-dense and high-response regions.
+
+Targeted occlusion removed useful ORB keypoints much faster than random occlusion in the tested images.
+
+This was deliberately adversarial synthetic occlusion, not a general test of ordinary real-world obstruction.
+
+### Experiment 25 - Spatial concentration audit
+
+Analysed the distribution of 2,000 ORB keypoints over a 20 x 20 grid.
+
+For the exact-copy candidate:
+- 103 of 400 cells were occupied.
+- 297 cells were empty.
+- The top 10% of cells by density contained approximately 80% of keypoints.
+- The top 20% contained approximately 97%.
+
+Density, total response and average response do not always rank the same cells.
+
+### Experiment 26 - Grid resolution sensitivity
+
+Compared 10 x 10, 20 x 20 and 40 x 40 grids across four images.
+
+A 20 x 20 grid is retained as a useful middle-ground research baseline, not a universal optimum.
+
+Area-based concentration and occupied-cell concentration must be kept separate. Fine grids can make area-based measurements misleading when most cells are empty.
 
 ## 8. Immediate next task
 
-### Experiment 21 — Combined transformations
+Continue research into the spatial distribution of geometrically verified matches.
 
-Test rotation and scaling together.
+The next experiment should investigate:
 
-Planned combinations:
+1. The spatial distribution of mutual matches in both reference and candidate images.
+2. The spatial distribution of RANSAC inliers in both images.
+3. Whether concentrated matches can produce misleading geometric agreement.
+4. Whether spatial coverage can help distinguish genuine image matches from accidental local agreement.
+5. How to establish useful minimum spatial coverage requirements without rejecting legitimate partial-image matches.
 
-- Rotate 30° and scale 0.50×.
-- Rotate 45° and scale 1.50×.
-- Rotate 90° and scale 0.75×.
-- Rotate 180° and scale 2.00×.
+Use the existing research scripts and labelled benchmark material where appropriate.
 
-Compare:
-- Genuine exact-copy variant.
-- Unrelated taxi photograph 1.
-- Unrelated taxi photograph 2.
+The existing 20 x 20 grid is a provisional diagnostic baseline. Do not assume it is the correct production grid resolution.
 
-Record:
-- Keypoints in each image.
-- Mutual matches.
-- Geometric inliers.
-- Inlier ratio.
-- Estimated scale.
-- Estimated rotation.
-
-The next assistant should provide a single manageable PowerShell experiment script and wait for the user's results before continuing.
+Record the results in the research documentation and update the project handoff when appropriate.
 
 Do not change production source code yet.
+
+After research and documentation changes, run the full test suite:
+
+```powershell
+python -m pytest -v
+```
+
+Standalone research scripts must also be checked independently because the existing pytest suite may not cover them.
 
 ## 9. GUI requirement
 
 The user wants two experience levels:
 
 ### Basic
+
 Simple everyday operation with sensible defaults and minimal technical complexity.
 
 ### Advanced
+
 Allow users to adjust ORB parameters and experiment, with safeguards and explanations.
 
 Parameters under consideration:
@@ -204,7 +273,10 @@ This is a confirmed design requirement, not an implemented feature.
 - Notepad++ for editing.
 - Wait for command output before proceeding.
 - Do not overwhelm with giant implementation plans.
-- Do not push to GitHub prematurely.
+- Do not stage, commit or push without explicit user approval.
+- Run the full pytest suite periodically, particularly after code changes.
+- Check standalone research scripts separately where appropriate.
+- Do not assume the assistant can directly access or modify the user's Windows machine.
 
 ## 11. Recovery instructions for a new conversation
 
@@ -213,8 +285,9 @@ Start by reading:
 1. `AGENTS.md`
 2. `PROJECT_STATUS.md`
 3. `docs/development/HANDOFF.md`
+4. `docs/experiments/ORB_RESEARCH.md`
 
-Then inspect:
+Then inspect the actual repository state:
 
 ```powershell
 cd F:\MediaDeduplicator
@@ -230,4 +303,12 @@ The test suite should only be run after checking the repository and confirming t
 
 Do not assume the historical test count or Git state is still current.
 
-Report the actual state and resume with Experiment 23 — Irregular occlusion resistance — unless the user requests a different task.
+Do not assume the previous experiment or research state is still current without checking the documentation and working tree.
+
+The latest documented research milestone is Experiment 26 - Grid resolution sensitivity.
+
+Resume with the spatial-distribution research task described in Section 8, unless the user requests a different task.
+
+Do not repeat completed experiments unnecessarily.
+
+Do not change production source code, stage files, commit changes or push to GitHub without explicit user approval.
