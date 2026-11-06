@@ -536,11 +536,63 @@ Area-based concentration and occupied-cell concentration should remain separate 
 
 Most importantly, a future matcher should investigate the spatial distribution of geometrically verified matches in both images, rather than relying only on the distribution of detected keypoints.
 
+### Experiment 27 - Spatial coverage of verified matches
+
+**Objective.** Measure how much of each image the mutual matches and RANSAC inliers cover. Compare genuine partial copies with pairs that share a small region.
+
+Run from the repository root using the generated pair list at `benchmarks/results/benchmark_pairs.csv` and the tracked curated labels:
+
+```powershell
+python -m docs.experiments.experiment_27_spatial_coverage
+```
+
+The script writes a local CSV under `benchmarks/results/`. Supply `--output` with a new path to repeat the run. If the pair list is missing, generate it with `python -m benchmarks.generate_pairs --manifest <local-manifest.csv>`.
+
+The run used OpenCV 5.0.0 and the existing benchmark matcher. For each image, it measured the convex hull area as a percentage of the full image and counted occupied cells on a 20 x 20 grid, separately for mutual matches and RANSAC inliers. The table shows inlier hull ranges for 124 pairs. The 8/6 column counts pairs with at least eight mutual matches and six inliers, for comparison with the safeguards from Experiments 23 and 24.
+
+| Control | Pairs | Passing 8/6 | Reference inlier hull | Candidate inlier hull |
+|---|---:|---:|---:|---:|
+| Exact copies | 36 | 36 | 28.04-85.58% | 28.04-85.58% |
+| Generated centre crops | 36 | 36 | 7.58-50.55% | 11.81-78.99% |
+| Curated near-duplicate bursts | 9 | 9 | 0.36-71.37% | 0.33-71.34% |
+| Curated same-scene negative | 1 | 0 | 0% | 0% |
+| Sampled original-to-original negatives | 36 | 2 | 0-0.86% | 0-1.13% |
+| Synthetic crops | 3 | 3 | 4.39-12.18% | 52.60-64.95% |
+| Synthetic composites sharing one patch | 3 | 3 | 6.26-15.54% | 6.26-15.54% |
+
+- The two sampled negatives that met the count safeguards had 17 and 21 inliers. Their mutual matches occupied 24-30 cells per image, and their inliers occupied 4-6. RANSAC agreement was confined to a small part of each image.
+- Each synthetic composite pair had 435-476 inliers and a 100% inlier ratio. The shared patch gave the matcher strong local evidence even though the canvases differed outside the patch.
+- The synthetic crops had low coverage in the reference and substantially higher coverage in the crop. Some curated burst positives had coverage as low as the sampled negatives. A single minimum full-image coverage rule would therefore risk discarding genuine matches.
+
+The generated negatives were sampled with seed 27 and their labels come from the pair generator. The curated burst labels represent near-duplicates, and the synthetic composites serve as negatives for whole-image equivalence. The findings apply to these controls. Production thresholds still require broader validation.
+
+### Experiment 28 - Coverage within estimated overlap
+
+Run with `python -m docs.experiments.experiment_28_overlap_coverage`. The script uses the Experiment 27 pair list and writes an ignored CSV under `benchmarks/results/`. Use `--output` with a new path for a repeat run.
+
+The CPU run used OpenCV 5.0.0. It mapped the candidate bounds into the reference frame using the estimated partial affine transform, intersected both image footprints and clipped the reference inlier hull to that overlap. It measured overlap as a fraction of each image separately and measured the clipped hull as a fraction of the overlap.
+
+The 136 pairs included the 124 Experiment 27 controls plus six genuine edge crops and six shared-patch composites made from local photos. Each crop was a 256- or 384-pixel square from a 768-pixel source image. The same patch was pasted in the opposite corner of a different image for the composite. The prior controls reproduced the earlier values for all metrics common to both runs.
+
+| Control | Pairs | Meeting the 8/6 evidence counts | Inlier hull within overlap |
+|---|---:|---:|---:|
+| Exact copies | 36 | 36 | 28.04-85.58% |
+| Generated centre crops | 36 | 36 | 11.83-79.02% |
+| Curated near-duplicate bursts | 9 | 9 | 0.39-71.65% |
+| Curated same-scene negative | 1 | 0 | - |
+| Sampled original-to-original negatives | 36 | 2 | 0.59-1.53% |
+| Synthetic crops | 3 | 3 | 52.59-64.95% |
+| Synthetic shared-patch composites | 3 | 3 | 9.68-24.03% |
+| Photo edge crops | 6 | 3 | 33.39-59.61% |
+| Photo edge composites | 6 | 2 | 40.24-59.53% |
+
+The hull ranges include only pairs with at least eight mutual matches and six inliers. Three genuine edge crops produced zero inliers. For two corresponding crop and composite pairs, the overlap hull measured about 60% and 40% respectively for both labels. The transform made the copied patch nearly the entire estimated overlap. The overlap covered almost all of each crop candidate and about 25% of both images in each composite pair. The overlap fractions are therefore useful alongside the normalized hull, and the result needs validation on more diverse scenes. Some genuine burst positives still had very low coverage.
+
 ## 8. Research status
 
-Experiments completed: 1-26.
+Experiments completed: 1-28.
 
-Current research focus: Spatial distribution and geometric reliability of ORB matches.
+Current research focus: Evidence for a review-only image pilot, including genuine partial copies and images that share a region.
 
 Current experimental safeguards:
 - Minimum 8 mutual matches for accepted geometric evaluation.
@@ -563,11 +615,9 @@ Final ORB thresholds: Not established.
 
 **Next research priorities**
 
-1. Investigate the spatial distribution of matched keypoints and RANSAC inliers in both reference and candidate images.
-2. Determine whether matches concentrated in a small image region can produce misleading geometric agreement.
-3. Investigate minimum spatial coverage and distribution requirements without rejecting legitimate partial-image matches.
-4. Expand positive and negative controls to include more diverse photographs and difficult near-duplicate cases.
-5. Validate candidate matching and acceptance rules against a larger labelled dataset.
-6. Only after sufficient validation, consider integrating ORB into the application as a complementary matching method.
+1. Label a representative set of real image pairs, including genuine edge crops, near-duplicate bursts and shared-region negatives.
+2. Compare the two image overlap fractions with full-image and overlap-normalized hull coverage.
+3. Evaluate which cases should be shown as uncertain matches in a review-only pilot.
+4. Validate any candidate rule on separate labelled controls before production integration.
 
 The current findings are experimental evidence, not guaranteed application behaviour. The test collection is limited, and further validation is required before production thresholds or false-positive claims can be justified.

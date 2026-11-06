@@ -10,12 +10,7 @@ Project directory: `F:\MediaDeduplicator`
 
 Git repository: `StoGFly/MediaDeduplicator` (public GitHub repository).
 
-The application is intended to identify exact duplicates and visually or acoustically similar media.
-
-Supported media categories planned:
-- Images.
-- Videos.
-- Audio.
+The application focuses on exact duplicate detection and visual similarity for images.
 
 Planned interfaces:
 - Graphical interface using PySide6.
@@ -47,40 +42,9 @@ Optional image-quality dependency:
 
 ## 3. Git status and milestones
 
-Main branch: `main`
+The benchmark framework, curated labels and ORB experiments 23-26 were committed in `111a6db`. Experiments 27 and 28 extend that research locally. Use `git log -1 --oneline` and `git status --short --branch` to check the current checkout.
 
-Latest recorded commit:
-
-`e1d87aa` - Add project continuity and ORB research documentation
-
-The current research and documentation work has not yet been committed.
-
-At the latest inspection, the working tree contained modified documentation and configuration files, along with new research scripts and benchmark files.
-
-Known modified files:
-- `.gitignore`
-- `AGENTS.md`
-- `PROJECT_STATUS.md`
-- `docs/development/HANDOFF.md`
-- `docs/experiments/ORB_RESEARCH.md`
-
-Known untracked work includes:
-- `benchmarks/`
-- `build_testmedia_manifest.py`
-- `docs/experiments/experiment_23_irregular_occlusion.py`
-- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
-- `docs/experiments/experiment_25_spatial_concentration.py`
-- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
-
-The curated benchmark labels have a canonical copy at:
-
-`benchmarks/data/curated_pair_labels.csv`
-
-Do not assume the above Git state remains current. Inspect the repository before staging or committing anything.
-
-Personal test media must remain outside Git. `TestMedia/` is excluded by `.gitignore`.
-
-No files should be staged, committed or pushed without explicit user approval.
+The [curated benchmark labels](benchmarks/data/curated_pair_labels.csv) are tracked. Git ignores `TestMedia/`, root-level `TestMedia_manifest_*.csv` inventories and `benchmarks/results/`. Keep personal media and generated results local.
 
 ## 4. Implemented functionality
 
@@ -127,17 +91,7 @@ Do not assume a globally installed `mediadedup` executable is available.
 
 ## 5. Testing status
 
-Previously verified:
-- Full project test suite: 58 tests passed.
-- Image test suite: 43 tests passed at the last recorded image milestone.
-
-These are historical results, not confirmation of the current test state.
-
-Run the tests again before making claims about current test status:
-
-```powershell
-python -m pytest -v
-```
+All 58 pytest tests and seven standalone overlap geometry checks passed. Experiment 28 measured 136 pairs separately.
 
 ## 6. Current experimental research: ORB
 
@@ -145,7 +99,7 @@ OpenCV ORB feature matching is being investigated as an additional image similar
 
 It is experimental and has not yet been integrated into production code.
 
-Experiments completed: 1-26.
+Experiments completed: 1-28.
 
 The detailed research record is maintained in:
 
@@ -161,6 +115,8 @@ The detailed research record is maintained in:
 | 24 | Feature-targeted occlusion |
 | 25 | Spatial concentration audit |
 | 26 | Grid resolution sensitivity |
+| 27 | Spatial coverage of verified matches |
+| 28 | Coverage within estimated overlap |
 
 ### Current experimental baseline
 
@@ -201,13 +157,13 @@ Important findings:
 - Synthetic feature-targeted occlusion can be substantially more damaging than random-area occlusion.
 - Keypoints can be heavily concentrated in a relatively small portion of an image.
 - Spatial concentration measurements depend on grid resolution and ranking method.
-- The spatial distribution of geometrically verified matches in both images requires further investigation.
+- Experiment 27 found concentrated inlier coverage in shared-patch composites despite high inlier counts. Genuine crops can have much higher coverage in the cropped image than in the original.
 
 The test collection remains limited. These results do not establish a general false-positive rate, universal occlusion tolerance or production acceptance threshold.
 
 ### Next research focus
 
-Investigate the spatial distribution and geometric reliability of matched keypoints and RANSAC inliers in both reference and candidate images.
+Evaluate a review-only image pilot on a representative labelled folder. Record overlap on each side separately and compare genuine crops, near-duplicate bursts and images that share a small region. Treat ambiguous local matches as candidates for manual review. Keep the existing exact scan read-only.
 
 Do not integrate ORB into production code until the matching and acceptance rules have been validated against a larger, more diverse labelled dataset.
 
@@ -277,8 +233,6 @@ The following areas remain future work unless subsequent documentation or source
 - Spatial distribution analysis of geometrically verified matches.
 - Larger and more diverse positive and negative image datasets.
 - Validation of matching and acceptance thresholds.
-- Video similarity using FFmpeg and sampled frames.
-- Audio similarity using Chromaprint.
 - Optional AI-assisted similarity using OpenCLIP.
 - SQLite-backed application storage.
 - PySide6 graphical interface.
@@ -299,27 +253,10 @@ The following areas remain future work unless subsequent documentation or source
 
 ## 10. Immediate next task
 
-Continue ORB research, focusing on spatial distribution and geometric reliability.
+Experiments completed: **1-28**.
 
-Experiments completed: **1-26**.
-
-The next investigation should examine:
-- Spatial distribution of matched keypoints.
-- Spatial distribution of RANSAC inliers in both images.
-- Whether concentrated matches can produce misleading geometric agreement.
-- Minimum spatial coverage requirements.
-- Avoiding rejection of legitimate partial-image matches.
-
-Expand the labelled positive and negative controls before deciding on production thresholds.
-
-Do not integrate ORB into production code yet.
+Continue with the review-only image pilot evaluation in [the development handoff](docs/development/HANDOFF.md#8-immediate-next-task). Expand the labelled controls and validate any matching rule before considering production integration.
 
 ## 11. GitHub publication
 
-The intended repository is private:
-
-`StoGFly/MediaDeduplicator`
-
-MIT licence.
-
-Do not push further changes until the user explicitly approves publication of the current development work.
+`StoGFly/MediaDeduplicator` is public and uses the MIT licence.

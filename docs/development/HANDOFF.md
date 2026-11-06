@@ -28,48 +28,19 @@ Activate with:
 
 ## 3. Last verified Git checkpoint
 
-Branch: `main`
+The benchmark framework, curated labels and ORB experiments 23-26 were committed in `111a6db`. Experiments 27 and 28 extend that research locally. Use `git log -1 --oneline` and `git status --short --branch` to check the current checkout.
 
-Latest recorded commit:
-
-`e1d87aa` - Add project continuity and ORB research documentation
-
-The current ORB research and documentation work is uncommitted.
-
-Known modified files:
-- `.gitignore`
-- `AGENTS.md`
-- `PROJECT_STATUS.md`
-- `docs/development/HANDOFF.md`
-- `docs/experiments/ORB_RESEARCH.md`
-
-Known untracked work includes:
-- `benchmarks/`
-- `build_testmedia_manifest.py`
-- `docs/experiments/experiment_23_irregular_occlusion.py`
-- `docs/experiments/experiment_24_feature_targeted_occlusion.py`
-- `docs/experiments/experiment_25_spatial_concentration.py`
-- `docs/experiments/experiment_26_grid_resolution_sensitivity.py`
-
-The canonical curated benchmark labels are stored at:
-
-`benchmarks/data/curated_pair_labels.csv`
-
-Always inspect the current repository state before proceeding.
-
-Do not stage, commit or push files without explicit user approval.
-
-Personal media in `TestMedia/` must remain excluded from Git.
+The [curated benchmark labels](../../benchmarks/data/curated_pair_labels.csv) are tracked. Git ignores `TestMedia/`, root-level `TestMedia_manifest_*.csv` inventories and `benchmarks/results/`. Keep personal media and generated results local.
 
 ## 4. Current development phase
 
 The project is investigating ORB feature matching using OpenCV.
 
-This remains research only.
+The project roadmap focuses on images. The first real-world milestone is a read-only image pilot with manual review of similarity results. ORB remains experimental.
 
 ORB has not been integrated into production source code, and no production ORB tests have been written.
 
-Research scripts for Experiments 23–26 are stored in:
+Research scripts for Experiments 23–28 are stored in:
 
 `docs/experiments/`
 
@@ -107,7 +78,7 @@ All parameters remain provisional.
 
 ## 6. Research findings to date
 
-Experiments completed: 1–26.
+Experiments completed: 1–28.
 
 The research has investigated:
 
@@ -148,15 +119,7 @@ The research has investigated:
 
 ### Current research direction
 
-The next important question is how well the geometrically verified matches are distributed across both images.
-
-A high number of matches concentrated in a small region may not provide sufficient evidence that two entire images represent the same underlying photograph.
-
-However, overly strict spatial coverage requirements could reject legitimate cropped or partially overlapping images.
-
-This trade-off requires further research.
-
-The positive and negative image collection is still limited. Do not claim a general false-positive rate or universal matching threshold.
+Experiment 28 found that overlap-normalized coverage can be almost identical for a genuine crop and a shared-patch composite. Record how much of each image overlaps and assess the combined evidence on more labelled images.
 
 ## 7. Latest completed experiments
 
@@ -212,33 +175,23 @@ A 20 x 20 grid is retained as a useful middle-ground research baseline, not a un
 
 Area-based concentration and occupied-cell concentration must be kept separate. Fine grids can make area-based measurements misleading when most cells are empty.
 
+### Experiment 27 - Spatial coverage of verified matches
+
+Measured 124 pairs. Shared-patch composites produced 435-476 inliers at a 100% inlier ratio, with evidence concentrated in a small part of each canvas. Genuine synthetic crops showed substantially higher coverage in the crop than in the reference. Some curated near-duplicate bursts had coverage as low as sampled negatives.
+
+See [the research record](../experiments/ORB_RESEARCH.md#experiment-27---spatial-coverage-of-verified-matches) for the command, control groups and results. The full pytest suite passed all 58 tests. The experiment ran separately.
+
+### Experiment 28 - Coverage within estimated overlap
+
+Measured 136 pairs. Two shared-patch composites had overlap hull coverage close to their corresponding genuine crops. Their estimated overlap covered about 25% of both images, while nearly all of the crop candidate was inside the overlap. Three of six genuine edge crops produced zero inliers.
+
+The run reproduced the common Experiment 27 metrics across 124 pairs. Seven geometry checks and all 58 pytest tests passed.
+
 ## 8. Immediate next task
 
-Continue research into the spatial distribution of geometrically verified matches.
+Evaluate a review-only image pilot on a representative labelled folder. Record overlap on each side separately and compare genuine crops, near-duplicate bursts and images that share a small region. Treat ambiguous local matches as candidates for manual review. Keep the existing exact scan read-only.
 
-The next experiment should investigate:
-
-1. The spatial distribution of mutual matches in both reference and candidate images.
-2. The spatial distribution of RANSAC inliers in both images.
-3. Whether concentrated matches can produce misleading geometric agreement.
-4. Whether spatial coverage can help distinguish genuine image matches from accidental local agreement.
-5. How to establish useful minimum spatial coverage requirements without rejecting legitimate partial-image matches.
-
-Use the existing research scripts and labelled benchmark material where appropriate.
-
-The existing 20 x 20 grid is a provisional diagnostic baseline. Do not assume it is the correct production grid resolution.
-
-Record the results in the research documentation and update the project handoff when appropriate.
-
-Do not change production source code yet.
-
-After research and documentation changes, run the full test suite:
-
-```powershell
-python -m pytest -v
-```
-
-Standalone research scripts must also be checked independently because the existing pytest suite may not cover them.
+Run the full suite with `python -m pytest -v` and verify standalone research scripts separately.
 
 ## 9. GUI requirement
 
@@ -275,6 +228,7 @@ This is a confirmed design requirement, not an implemented feature.
 - Do not overwhelm with giant implementation plans.
 - Do not stage, commit or push without explicit user approval.
 - Run the full pytest suite periodically, particularly after code changes.
+- Reuse available test and dependency caches while executing current checks. Use GPU acceleration when the test or benchmark supports it, and record the backend for measurements that need to be comparable.
 - Check standalone research scripts separately where appropriate.
 - Do not assume the assistant can directly access or modify the user's Windows machine.
 
@@ -305,9 +259,9 @@ Do not assume the historical test count or Git state is still current.
 
 Do not assume the previous experiment or research state is still current without checking the documentation and working tree.
 
-The latest documented research milestone is Experiment 26 - Grid resolution sensitivity.
+The latest documented research milestone is Experiment 28 - Coverage within estimated overlap.
 
-Resume with the spatial-distribution research task described in Section 8, unless the user requests a different task.
+Resume with the image pilot evaluation in Section 8, unless the user requests a different task.
 
 Do not repeat completed experiments unnecessarily.
 

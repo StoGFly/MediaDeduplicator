@@ -121,8 +121,6 @@ Preserve established project architecture and decisions unless a change is discu
 
 The project is intended to support:
 - Images.
-- Videos.
-- Audio.
 - Command-line operation.
 - A graphical interface.
 - Optional AI-assisted capabilities.

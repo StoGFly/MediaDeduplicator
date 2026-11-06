@@ -1,16 +1,14 @@
 # MediaDeduplicator
 
-A Windows desktop and command-line application for finding duplicate and similar media files.
+A Windows desktop and command-line application for finding duplicate and visually similar images.
 
 **Status:** Early development
 
 ## Planned features
 
-- Image, video and audio scanning.
+- Image scanning.
 - Exact duplicate detection using SHA-256.
 - Perceptual image similarity detection.
-- Video comparison using sampled frames.
-- Audio fingerprint comparison.
 - Optional AI-assisted similarity detection.
 - Desktop GUI built with PySide6.
 - Command-line interface.
