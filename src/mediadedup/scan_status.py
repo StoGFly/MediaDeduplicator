@@ -1,5 +1,7 @@
 """Status window for a desktop scan."""
 
+from collections import deque
+from math import ceil
 from time import monotonic
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
@@ -26,6 +28,8 @@ class ScanStatus(QDialog):
         self.resize(560, 250)
         self.running = False
         self.compact = ""
+        self.byte_samples = deque()
+        self.byte_total = None
         self.settings = QSettings("MediaDeduplicator", "MediaDeduplicator")
         self.started = 0.0
         self.stopped_id = None
@@ -37,7 +41,10 @@ class ScanStatus(QDialog):
         self.phase = QLabel("No scan started.")
         self.totals = QLabel()
         self.elapsed = QLabel()
-        for label in (self.folder, self.phase, self.totals, self.elapsed):
+        self.keepers = QLabel()
+        self.keepers.hide()
+        self.keepers.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        for label in (self.folder, self.phase, self.totals, self.elapsed, self.keepers):
             label.setTextFormat(Qt.TextFormat.PlainText)
             label.setWordWrap(True)
             layout.addWidget(label)
@@ -61,7 +68,12 @@ class ScanStatus(QDialog):
             actions.addWidget(button)
         layout.addLayout(actions)
 
+    def set_keeper_summary(self, summary):
+        self.keepers.setText(summary)
+        self.keepers.setVisible(bool(summary))
+
     def begin(self, folder):
+        self.set_keeper_summary("")
         self.running = True
         self.stopped_id = None
         self.started = monotonic()
@@ -82,6 +94,27 @@ class ScanStatus(QDialog):
         hours, minutes = divmod(minutes, 60)
         self.elapsed.setText(f"Elapsed {hours:02d}:{minutes:02d}:{seconds:02d}")
 
+    def hash_estimate(self, covered, total):
+        now = monotonic()
+        samples = self.byte_samples
+        if total != self.byte_total or (samples and covered < samples[-1][1]):
+            samples.clear()
+            self.byte_total = total
+        samples.append((now, covered))
+        while len(samples) > 1 and samples[1][0] <= now - 30:
+            samples.popleft()
+
+        started, initial = samples[0]
+        duration = now - started
+        if duration < 5 or covered <= initial or covered >= total:
+            return ""
+        rate = (covered - initial) / duration
+        seconds = ceil((total - covered) / rate)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        eta = f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+        return f"{format_bytes(rate)}/s · about {eta} remaining"
+
     def update_progress(self, status):
         phase, done, total, photos, videos, size, byte_progress = status
         if self.stop_button.isEnabled() or not self.running:
@@ -89,7 +122,13 @@ class ScanStatus(QDialog):
             if byte_progress is not None and byte_progress[1]:
                 covered, to_check = byte_progress
                 progress += f"\n{format_bytes(covered)} / {format_bytes(to_check)} checked"
+                estimate = self.hash_estimate(covered, to_check)
+                if estimate:
+                    progress += f"\n{estimate}"
                 done, total = covered, to_check
+            else:
+                self.byte_samples.clear()
+                self.byte_total = None
             self.phase.setText(progress)
             self.compact = progress
             self.compact_changed.emit()

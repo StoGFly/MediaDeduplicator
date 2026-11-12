@@ -1,10 +1,12 @@
 """Resumable desktop scanning with cooperative stop points."""
 
 from collections import Counter, defaultdict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import hashlib
 import json
 from pathlib import Path
 import sqlite3
+from threading import Event, Lock
 from time import monotonic
 
 from PySide6.QtCore import QThread, Signal
@@ -26,7 +28,7 @@ class Scan(QThread):
     progress = Signal(object)
 
     def __init__(self, folder, similarity, threshold, hash_size, history, parent,
-                 resume_id=None, scope="photos", extensions=None):
+                 resume_id=None, scope="photos", extensions=None, hash_workers=4):
         super().__init__(parent)
         self.folder = folder
         self.similarity = similarity
@@ -34,6 +36,7 @@ class Scan(QThread):
         self.hash_size = hash_size
         self.history = history
         self.resume_id = resume_id
+        self.hash_workers = hash_workers
         self.scope = "photos" if similarity else scope
         available = scan_extensions(self.scope, self.similarity)
         self.extensions = available if extensions is None else available.intersection(extensions)
@@ -89,27 +92,72 @@ class Scan(QThread):
         phase = "Checking exact hashes"
         total = len(candidates)
         total_bytes = sum(signatures[path][2] for path in candidates)
-        completed_bytes = 0
-        self.report(phase, 0, total, force=True, byte_progress=(0, total_bytes))
+        completed = {}
+        waiting = []
+        for path in candidates:
+            checkpoint = saved.get(str(path))
+            if checkpoint is not None and checkpoint[0] == signatures[path]:
+                completed[path] = checkpoint[1]
+            else:
+                waiting.append(path)
+
+        completed_bytes = sum(signatures[path][2] for path in completed)
+        self.report(phase, len(completed), total, force=True, byte_progress=(completed_bytes, total_bytes))
+        if waiting:
+            stop = Event()
+            progress_lock = Lock()
+            in_progress = {}
+
+            def hash_file(path):
+                def on_chunk(size):
+                    if stop.is_set():
+                        raise ScanStopped
+                    with progress_lock:
+                        in_progress[path] += size
+
+                digest = sha256_file(path, on_chunk=on_chunk)
+                if list(file_fingerprint(path)) != signatures[path]:
+                    raise OSError(f"File changed during the scan: {path}")
+                return digest
+
+            remaining = iter(waiting)
+            pending = {}
+            workers = min(self.hash_workers, len(waiting))
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="exact-hash") as pool:
+                def submit_next():
+                    path = next(remaining, None)
+                    if path is not None:
+                        with progress_lock:
+                            in_progress[path] = 0
+                        pending[pool.submit(hash_file, path)] = path
+
+                try:
+                    for _ in range(workers):
+                        submit_next()
+                    while pending:
+                        ready, _ = wait(pending, timeout=0.15, return_when=FIRST_COMPLETED)
+                        for future in ready:
+                            path = pending.pop(future)
+                            digest = future.result()
+                            saved[str(path)] = [signatures[path], digest]
+                            completed[path] = digest
+                            completed_bytes += signatures[path][2]
+                            with progress_lock:
+                                del in_progress[path]
+                        with progress_lock:
+                            covered = completed_bytes + sum(in_progress.values())
+                        self.report(phase, len(completed), total, byte_progress=(covered, total_bytes))
+                        for _ in ready:
+                            submit_next()
+                finally:
+                    stop.set()
+                    for future in pending:
+                        future.cancel()
+
+        self.report(phase, total, total, force=True, byte_progress=(total_bytes, total_bytes))
         groups = defaultdict(list)
-        for index, path in enumerate(candidates, 1):
-            current_bytes = 0
-
-            def on_chunk(size):
-                nonlocal current_bytes
-                current_bytes += size
-                self.report(
-                    phase, index - 1, total,
-                    byte_progress=(completed_bytes + current_bytes, total_bytes),
-                )
-
-            digest = self.digest(
-                path, signatures[path], saved,
-                lambda file: sha256_file(file, on_chunk=on_chunk),
-            )
-            groups[digest].append(path)
-            completed_bytes += signatures[path][2]
-            self.report(phase, index, total, byte_progress=(completed_bytes, total_bytes))
+        for path in candidates:
+            groups[completed[path]].append(path)
         return [group for group in groups.values() if len(group) > 1]
 
     def similar_matches(self, paths, signatures, checkpoint):
@@ -189,7 +237,7 @@ class Scan(QThread):
                     (title, [(path, signatures[path][2]) for path in group])
                     for title, group in groups
                 ]
-            except ScanStopped:
+            except (KeyboardInterrupt, ScanStopped):
                 self.history.stop(scan_id, checkpoint, self.file_count)
                 self.stopped.emit(scan_id)
                 return

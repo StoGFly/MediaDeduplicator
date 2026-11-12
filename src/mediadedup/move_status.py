@@ -42,7 +42,7 @@ class MoveStatus(QDialog):
         self.size = size
         self.destination.setText(str(destination))
         self.progress.setRange(0, 100)
-        self.update_progress("Starting move", "", 0, 0, 0, 0)
+        self.update_progress("Starting move", "", 0, 0, 0, 0, 0)
         self.progress.show()
         self.update_elapsed()
         self.timer.start(1000)
@@ -53,10 +53,19 @@ class MoveStatus(QDialog):
         seconds = int(monotonic() - self.started)
         self.elapsed.setText(f"Elapsed {seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}")
 
-    def update_progress(self, phase, source, processed, moved, bytes_moved, issues):
+    def update_progress(self, phase, source, processed, moved, bytes_moved, failed_bytes, issues):
+        remaining = self.size - bytes_moved - failed_bytes
+
+        def amount(value):
+            return f"{value / 1e9:,.2f} GB" if self.size >= 1e9 else format_bytes(value)
+
+        self.size_breakdown = (
+            f"{amount(self.size)} queued · {amount(bytes_moved)} moved\n"
+            f"{amount(remaining)} remaining · {amount(failed_bytes)} failed"
+        )
         self.compact = (
-            f"{phase} · {processed:,} / {self.count:,} processed\n"
-            f"{moved:,} moved · {format_bytes(bytes_moved)} / {format_bytes(self.size)} · {issues:,} issues"
+            f"{phase} · {processed:,} / {self.count:,} processed · {moved:,} moved · {issues:,} issues\n"
+            f"{self.size_breakdown}"
         )
         self.phase.setText(self.compact)
         self.file.setText(source)
@@ -68,7 +77,7 @@ class MoveStatus(QDialog):
         self.timer.stop()
         self.update_elapsed()
         self.progress.hide()
-        self.phase.setText(message)
+        self.phase.setText(f"{message}\n{self.size_breakdown}")
         self.file.clear()
         self.compact = ""
         self.compact_changed.emit()

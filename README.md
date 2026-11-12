@@ -15,7 +15,7 @@ A Windows desktop and command-line application for finding exact copies of photo
 ## Planned features
 
 - Optional AI-assisted similarity detection.
-- Quarantine restoration workflows.
+- Batch restoration and folder merge.
 - CSV and HTML reports.
 
 ## Safety first
@@ -24,8 +24,8 @@ MediaDeduplicator is designed to protect your files.
 
 - Scanning is read-only.
 - No automatic permanent deletion.
-- Quarantine operations require user confirmation.
-- Restore functionality is planned.
+- Moving or recycling exact copies requires user confirmation.
+- Restore verifies the recycled file and preserves existing files.
 - Duplicate decisions retain their supporting evidence.
 
 ## Requirements
@@ -46,21 +46,32 @@ python -m pip install -e ".[dev]"
 
 ## Desktop app
 
-Launch from the project environment with `python -m mediadedup.gui`.
+Launch from the project environment with `python -m mediadedup.gui`. The window remembers its size, position, maximized state and preview split.
 
-Choose a recent folder in the editable path dropdown, or enter a new path. **Scan options → File extensions** lets you choose individual formats and stores the filter with the scan. Hide Scan Status to see compact progress along the bottom of the main window.
+### Scan and compare
 
-The Media preview panel supports video playback and opening the file in the default player. Tick copies to queue them for moving. **Move Status** shows the current file, bytes moved and issues. Successful moves clear their checkboxes, and failed copies stay queued for review.
+- **Basic** finds exact SHA-256 duplicates in photos, videos, or both. **Scan options → File extensions** sets the formats. **Hash workers** sets concurrent reads to 1, 2, 4 or 8, with four by default.
+- **Advanced** finds experimental pHash similarity candidates in photos. The search can miss crops. pHash and exact scan history are stored locally in `sql.db`.
+- **Scan Status** shows the exact-hashing rate and estimated time remaining. Hide it to see progress in the bottom bar. Stop saves a checkpoint and Resume rechecks files that changed.
+- **History** reopens results and shows related folder scans. **Review → Folder overlap** compares exact coverage and lists files with no match in the other folder.
 
-- **Basic** finds exact SHA-256 duplicates in photos, videos, or both. Select the file types under **Include**. Advanced similarity searches photos.
-- **Advanced** exposes the pHash agreement threshold and hash width for manual similarity review. The search compares every pair and may miss crops.
+### Review and move
 
-Both modes scan read-only. ORB controls remain part of the research roadmap.
+- Select a keeper manually from a file's right-click menu, or use **Move → Keep by folder** or **Keep by filename pattern**. The filename rule flags choices that could drop descriptive text.
+- Use checkboxes and **Show queued only** to review a move batch. The queue shows checked copies, copies hidden by the filter and total size. Right-click results to copy paths, filter by folder or update visible checkboxes.
+- The move preview sorts by path and lets you remove individual rows before confirming. The app rechecks copies against their keepers. Move Status reports queued, moved, remaining and failed sizes.
+- **Recycle checked copies** moves verified extras to a folder you choose. **History → Recycle Folder** restores one copy at a time. If its original path is occupied, choose an unused path. The app verifies the recorded SHA-256 before restoring.
+- **Media preview** supports photos and video. Video playback includes volume, mute, seeking and ten-second skips. The app remembers volume and mute.
 
-**Review → Folder overlap** compares two separate folder trees using SHA-256. It shows how many files on each side match the other folder, the matched size, and the files that exist only on that side. Completed comparisons are saved locally.
+## Command line
 
-Open **Scan Status** to see progress, elapsed time and totals. **Stop scan** saves a checkpoint. **Resume** checks for changed files and continues the saved scan. **Start fresh** starts a new history entry. Only one scan or move can run against the local database at a time. The toolbar groups Scan options, Review, Move and History. History shows related scans for the selected folder, including parent and nested folders. Move offers recent destinations and previews the scanned folder, chosen destination and full resulting paths.
+Run these from the project environment. Use `--help` after any command for its options.
 
-The toolbar provides folder selection, scanning, scan history, filtering and file review controls. Desktop scans are recorded in the local `sql.db` under the MediaDeduplicator application data folder. History can reopen completed results with the original scan settings. Basic hashes only files that share a size. Advanced caches perceptual hashes in the database and reuses them on later scans when the file metadata and hash width match.
+```powershell
+python -m mediadedup exact "D:\Photos" --media both --workers 4
+python -m mediadedup similar "D:\Photos" --threshold 90 --hash-size 8
+python -m mediadedup overlap "D:\Photos" "D:\Backup" --media videos
+python -m mediadedup history --limit 20
+```
 
-In Basic mode, **Keep by folder** selects visible exact groups with a single copy in the preferred folder or its subfolders. The Review column identifies the keeper. Use **Keep this file** to override it. **Move exact copies** previews the keeper, source, destination and total size before moving. The app rechecks both hashes and preserves relative paths at the destination. Choose a destination different from the scanned folder. The preview shows numbered filenames when the destination already contains a name.
+`exact` and `similar` write scan history and share the operation lock with the desktop app. `overlap` saves its folder comparison locally. The original `scan` command checks exact contents across all discovered files. Use the desktop app for recycling and restoring copies.

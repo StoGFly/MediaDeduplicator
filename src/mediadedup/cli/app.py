@@ -10,7 +10,7 @@ from mediadedup.detectors.exact import find_exact_duplicates
 
 app = typer.Typer(
     name="mediadedup",
-    help="Find duplicate and similar images, videos and audio files.",
+    help="Find duplicate and similar images and exact duplicate videos.",
     no_args_is_help=True,
 )
 
@@ -128,6 +128,14 @@ def scan(
     typer.echo(f"  Duplicate groups: {len(duplicate_groups)}")
     typer.echo(f"  Redundant data: {wasted_mb:.2f} MiB")
     typer.echo("\nNo files were changed.")
+
+
+from mediadedup.cli import media_commands
+
+app.command()(media_commands.exact)
+app.command()(media_commands.similar)
+app.command()(media_commands.overlap)
+app.command()(media_commands.history)
 
 
 if __name__ == "__main__":

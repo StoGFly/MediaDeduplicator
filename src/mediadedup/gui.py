@@ -1,23 +1,28 @@
 """Read-only desktop review for exact and visually similar images."""
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QSignalBlocker, QSize, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QImageReader, QPixmap
+from PySide6.QtCore import QByteArray, QLockFile, QSettings, QSignalBlocker, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QActionGroup, QDesktopServices, QImageReader, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-    QGroupBox, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
     QPlainTextEdit, QProgressBar, QSpinBox, QSplitter, QStyle, QToolBar, QToolButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from mediadedup.filename_keepers import (
+    CountFilenamePatterns, DATE_COMPACT, DATE_DOTS, OTHER, filename_keeper, winning_style,
+)
 from mediadedup.folder_overlap import FolderOverlapDialog, SCOPES
 from mediadedup.media_formats import ExtensionDialog, VIDEO_EXTENSIONS, extension_groups, scan_extensions
 from mediadedup.move_copies import move_copy, plan_move_targets
 from mediadedup.move_status import MoveStatus
+from mediadedup.recycle_dialog import RecycleDialog
 from mediadedup.scan_history import ScanHistory
 from mediadedup.scan_job import Scan
 from mediadedup.scan_status import ScanStatus, format_bytes
@@ -27,45 +32,71 @@ from mediadedup.video_preview import VideoPreview
 FILE_ROLE = Qt.ItemDataRole.UserRole
 SIZE_ROLE = FILE_ROLE + 1
 KEEPER_ROLE = FILE_ROLE + 2
+KEEP_REASON_ROLE = FILE_ROLE + 3
+REVIEW_ROLE = FILE_ROLE + 4
 
 
 class MoveCopies(QThread):
     completed = Signal(object, object)
-    progress = Signal(str, str, int, int, object, int)
+    progress = Signal(str, str, int, int, object, object, int)
     file_moved = Signal(str, str)
 
-    def __init__(self, jobs, history, scan_id, destination, parent):
+    def __init__(self, jobs, sizes, history, scan_id, destination, parent, *, recycle=False):
         super().__init__(parent)
         self.jobs = jobs
+        self.sizes = sizes
         self.history = history
         self.scan_id = scan_id
         self.destination = destination
+        self.recycle = recycle
 
     def run(self):
+        keepers = {keeper for keeper, _, _ in self.jobs}
+        if any(source in keepers for _, source, _ in self.jobs):
+            self.progress.emit("Stopped", "", len(self.jobs), 0, 0, sum(self.sizes.values()), 1)
+            self.completed.emit({}, ["The move queue contains a keeper. Review the queue and try again."])
+            return
         moved = {}
         errors = []
         bytes_moved = 0
-        for index, (keeper, source, target) in enumerate(self.jobs):
-            self.progress.emit("Verifying", str(source), index, len(moved), bytes_moved, len(errors))
-            try:
-                size = source.stat().st_size
+        failed_bytes = 0
 
-                def show_moving():
-                    self.progress.emit("Moving", str(source), index, len(moved), bytes_moved, len(errors))
+        def report(phase, source, processed):
+            self.progress.emit(
+                phase, str(source), processed, len(moved), bytes_moved, failed_bytes, len(errors)
+            )
+
+        for index, (keeper, source, target) in enumerate(self.jobs):
+            report("Verifying", source, index)
+            recycle_id = None
+            size = self.sizes[source]
+            try:
+                if source.stat().st_size != size:
+                    raise ValueError("The source size changed since the scan. Scan it again before moving.")
+
+                def show_moving(digest):
+                    nonlocal recycle_id
+                    if self.recycle:
+                        recycle_id = self.history.begin_recycle(self.scan_id, source, target, digest)
+                    report("Moving to Recycle Folder" if self.recycle else "Moving", source, index)
 
                 move_copy(keeper, source, target, on_moving=show_moving)
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, sqlite3.Error) as error:
+                failed_bytes += size
                 errors.append(f"{source}\nDestination: {target}\n{error}")
             else:
                 moved[str(source)] = str(target)
                 bytes_moved += size
                 self.file_moved.emit(str(source), str(target))
                 try:
-                    self.history.record_move(self.scan_id, source, target)
+                    if self.recycle:
+                        self.history.complete_recycle(recycle_id)
+                    else:
+                        self.history.record_move(self.scan_id, source, target)
                 except (OSError, sqlite3.Error) as error:
                     errors.append(f"{source}\nMoved to {target}. History could not be updated: {error}")
-            self.progress.emit("Moving copies", str(source), index + 1, len(moved), bytes_moved, len(errors))
-        if moved:
+            report("Recycling copies" if self.recycle else "Moving copies", source, index + 1)
+        if moved and not self.recycle:
             try:
                 self.history.record_destination(self.destination)
             except (OSError, sqlite3.Error) as error:
@@ -77,7 +108,6 @@ class MainWindow(QMainWindow):
     def __init__(self, history=None):
         super().__init__()
         self.setWindowTitle("MediaDeduplicator")
-        self.resize(1000, 670)
         self.worker = None
         self.scan_folder = None
         self.scan_similarity = False
@@ -86,7 +116,13 @@ class MainWindow(QMainWindow):
         self.moved_files = {}
         self.move_items = {}
         self.queued = set()
+        self.preferred_keeper_folder = None
+        self.keeper_report = ""
         self.extension_choices = {}
+        self.settings = QSettings("MediaDeduplicator", "MediaDeduplicator")
+        self.hash_workers = self.settings.value("exactHashWorkers", 4, type=int)
+        if self.hash_workers not in (1, 2, 4, 8):
+            self.hash_workers = 4
         self.operation_lock = QLockFile(str(self.history.path) + ".operation.lock")
         self.operation_lock.setStaleLockTime(0)
         self.scan_status = ScanStatus(self)
@@ -174,8 +210,20 @@ class MainWindow(QMainWindow):
         self.filter.setClearButtonEnabled(True)
         self.filter.textChanged.connect(self.filter_results)
         layout.addWidget(self.filter)
+        queue_row = QHBoxLayout()
+        self.queue_summary = QLabel()
+        self.queue_summary.setTextFormat(Qt.TextFormat.PlainText)
+        self.queued_only = QCheckBox("Show queued only")
+        self.queued_only.toggled.connect(lambda: self.filter_results(self.filter.text()))
+        queue_row.addWidget(self.queue_summary, 1)
+        queue_row.addWidget(self.queued_only)
+        layout.addLayout(queue_row)
+        self.queue_refresh = QTimer(self)
+        self.queue_refresh.setSingleShot(True)
+        self.queue_refresh.timeout.connect(self.refresh_queue_view)
 
         splitter = QSplitter()
+        self.review_splitter = splitter
         self.results = QTreeWidget()
         self.results.setAlternatingRowColors(True)
         self.results.setUniformRowHeights(True)
@@ -205,10 +253,26 @@ class MainWindow(QMainWindow):
         self.create_toolbar()
         self.results.itemSelectionChanged.connect(self.update_review_actions)
         self.results.itemChanged.connect(self.move_check_changed)
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.results.customContextMenuRequested.connect(self.show_queue_menu)
         self.update_review_actions()
         self.refresh_scan_folders()
         self.update_related_scans()
         self.update_extension_summary()
+        self.restore_layout()
+
+    def restore_layout(self):
+        geometry = self.settings.value("mainWindow/geometry", QByteArray(), type=QByteArray)
+        if not geometry or not self.restoreGeometry(geometry):
+            screen = self.screen().availableGeometry()
+            width = round(screen.width() * 0.85)
+            height = round(screen.height() * 0.85)
+            x = screen.x() + (screen.width() - width) // 2
+            y = screen.y() + (screen.height() - height) // 2
+            self.setGeometry(x, y, width, height)
+        splitter = self.settings.value("mainWindow/previewSplit", QByteArray(), type=QByteArray)
+        if splitter:
+            self.review_splitter.restoreState(splitter)
 
     def create_toolbar(self):
         toolbar = QToolBar("Photo tools", self)
@@ -239,6 +303,16 @@ class MainWindow(QMainWindow):
         self.advanced_action = scan_menu.addAction("Advanced · Similar photos", lambda: self.mode.setCurrentIndex(1))
 
         self.file_types = scan_menu.addAction("File extensions…", self.choose_extensions)
+        self.hash_menu = scan_menu.addMenu("Hash workers")
+        workers = QActionGroup(self.hash_menu)
+        workers.setExclusive(True)
+        for count in (1, 2, 4, 8):
+            label = "1 · Sequential" if count == 1 else f"{count} files in parallel"
+            action = self.hash_menu.addAction(label)
+            action.setCheckable(True)
+            workers.addAction(action)
+            action.setChecked(count == self.hash_workers)
+            action.triggered.connect(lambda checked=False, count=count: self.set_hash_workers(count))
 
         review = menu("Review")
         self.overlap = review.addAction("Folder overlap…", self.show_folder_overlap)
@@ -250,17 +324,24 @@ class MainWindow(QMainWindow):
         move = menu("Move")
         self.plan = move.addAction("Keep by folder…", self.choose_keeper_folder)
         self.keep = move.addAction("Keep this file", self.keep_selected_file)
+        self.filename_plan = move.addAction("Keep by filename pattern…", self.choose_filename_folder)
         self.move = move.addAction("Move exact copies…", self.choose_move_destination)
+        self.recycle = move.addAction("Recycle checked copies…", self.choose_recycle_destination)
         self.recent_menu = move.addMenu("Recent destinations")
         self.recent_menu.aboutToShow.connect(self.populate_recent_destinations)
 
         history = menu("History")
+        self.open_recycle = history.addAction("Recycle Folder…", self.show_recycle_folder)
         self.open_history = history.addAction("All scans…", self.show_history)
         self.open_history.setShortcut("Ctrl+H")
         self.addAction(self.open_history)
         self.related_history = history.addAction(
             "Related scans…", lambda: self.show_history(related_only=True)
         )
+
+    def set_hash_workers(self, count):
+        self.hash_workers = count
+        self.settings.setValue("exactHashWorkers", count)
 
     def show_folder_overlap(self):
         if self.worker is None:
@@ -409,18 +490,21 @@ class MainWindow(QMainWindow):
         self.scan_folder = resolved
         self.scan_similarity = self.mode.currentIndex() == 1
         self.scan_id = None
+        self.keeper_report = ""
+        self.preferred_keeper_folder = None
         self.moved_files.clear()
         self.move_items.clear()
         self.queued.clear()
         self.results.clear()
         self.filter.clear()
+        self.queued_only.setChecked(False)
         self.show_preview(None)
         self.summary.setText("Scanning files…")
 
         self.worker = Scan(
             self.scan_folder, self.scan_similarity, self.threshold.value(),
             self.hash_size.value(), self.history, self, resume_id=resume_id,
-            scope=self.scope.currentData(), extensions=extensions,
+            scope=self.scope.currentData(), extensions=extensions, hash_workers=self.hash_workers,
         )
         self.worker.completed.connect(self.scan_completed)
         self.worker.failed.connect(self.show_error)
@@ -488,10 +572,14 @@ class MainWindow(QMainWindow):
 
     def show_results(self, groups, count, scan_id):
         self.scan_id = scan_id
+        self.keeper_report = ""
+        self.preferred_keeper_folder = None
+        self.scan_status.set_keeper_summary("")
         self.move_items.clear()
         self.queued.clear()
         self.results.clear()
         self.filter.clear()
+        self.queued_only.setChecked(False)
         kind = "similarity candidates" if self.scan_similarity else "exact duplicate groups"
         unit = "photos" if self.scan_similarity else "files"
         self.summary.setText(f"Scanned {count:,} {unit} · {len(groups):,} {kind}")
@@ -560,13 +648,14 @@ class MainWindow(QMainWindow):
         for control in (
             self.folder, self.browse, self.start, self.mode, self.scope, self.options, self.open_history,
             self.basic_action, self.advanced_action, self.related, self.related_history, self.overlap,
-            self.file_types, self.results,
+            self.file_types, self.hash_menu, self.results, self.open_recycle, self.queued_only,
         ):
             control.setEnabled(not busy)
         self.update_review_actions()
 
     def work_finished(self):
         moved = isinstance(self.worker, MoveCopies)
+        self.queue_refresh.stop()
         self.worker.deleteLater()
         self.worker = None
         self.operation_lock.unlock()
@@ -574,21 +663,36 @@ class MainWindow(QMainWindow):
         self.refresh_scan_folders()
         self.update_related_scans()
         if moved:
+            self.refresh_queue_view()
             self.show_preview(self.results.currentItem())
         self.update_compact_status()
 
     def filter_results(self, text):
-        query = text.strip().casefold()
+        query = text.strip()
+        query_path = Path(query)
+        absolute = bool(query) and query_path.is_absolute()
+        search = query.replace("/", os.sep).casefold()
         current = self.results.currentItem()
-        for index in range(self.results.topLevelItemCount()):
-            group = self.results.topLevelItem(index)
-            visible = not query or any(
-                query in self.result_path(group.child(i)).casefold()
-                for i in range(group.childCount())
-            )
-            group.setHidden(not visible)
-            if not visible and current and (current == group or current.parent() == group):
-                self.results.setCurrentItem(None)
+        with QSignalBlocker(self.results):
+            for index in range(self.results.topLevelItemCount()):
+                group = self.results.topLevelItem(index)
+                group_visible = False
+                for position in range(group.childCount()):
+                    child = group.child(position)
+                    path = self.result_path(child)
+                    matches = (
+                        Path(path).is_relative_to(query_path) if absolute
+                        else search in path.casefold()
+                    )
+                    if self.queued_only.isChecked():
+                        matches = matches and child.data(0, FILE_ROLE) in self.queued
+                    child.setHidden(not matches)
+                    group_visible |= matches
+                group.setHidden(not group_visible)
+                if not self.scan_similarity:
+                    self.refresh_group_checks(group)
+        if current is not None and current.isHidden():
+            self.results.setCurrentItem(None)
         self.update_review_actions()
 
     def show_history(self, *, related_only=False):
@@ -681,24 +785,29 @@ class MainWindow(QMainWindow):
         if path:
             QApplication.clipboard().setText(path)
 
-    def set_keeper(self, group, item):
+    def set_keeper(self, group, item, reason="Default order"):
         keeper = item.data(0, FILE_ROLE)
         with QSignalBlocker(self.results):
             group.setData(0, KEEPER_ROLE, keeper)
+            group.setData(0, KEEP_REASON_ROLE, reason)
+            group.setData(0, REVIEW_ROLE, None)
+            group.setText(2, "")
             for index in range(group.childCount()):
                 child = group.child(index)
                 source = child.data(0, FILE_ROLE)
                 if source not in self.moved_files:
-                    child.setText(2, "Keep" if source == keeper else "")
+                    child.setText(2, f"Keep · {reason}" if source == keeper else "")
             self.refresh_group_checks(group)
 
-    def eligible_copies(self, group):
+    def eligible_copies(self, group, *, visible_only=False):
         keeper = group.data(0, KEEPER_ROLE)
-        if keeper:
+        if keeper and not group.data(0, REVIEW_ROLE):
             for index in range(group.childCount()):
                 child = group.child(index)
                 source = child.data(0, FILE_ROLE)
-                if source != keeper and source not in self.moved_files:
+                if source == keeper or source in self.moved_files:
+                    continue
+                if not visible_only or not child.isHidden():
                     yield child
 
     def refresh_group_checks(self, group):
@@ -716,15 +825,16 @@ class MainWindow(QMainWindow):
                 child.setFlags(child.flags() & ~flag)
                 child.setData(0, role, None)
 
-        count = len(eligible & self.queued)
-        if not eligible:
+        visible = {child.data(0, FILE_ROLE) for child in self.eligible_copies(group, visible_only=True)}
+        count = len(visible & self.queued)
+        if not visible:
             group.setFlags(group.flags() & ~flag)
             group.setData(0, role, None)
         else:
             group.setFlags(group.flags() | flag)
             state = Qt.CheckState.Unchecked
             if count:
-                state = Qt.CheckState.Checked if count == len(eligible) else Qt.CheckState.PartiallyChecked
+                state = Qt.CheckState.Checked if count == len(visible) else Qt.CheckState.PartiallyChecked
             group.setCheckState(0, state)
 
     def move_check_changed(self, item, column):
@@ -736,7 +846,7 @@ class MainWindow(QMainWindow):
         group = item if parent is None else parent
         checked = item.checkState(0) == Qt.CheckState.Checked
         with QSignalBlocker(self.results):
-            children = self.eligible_copies(group) if parent is None else [item]
+            children = self.eligible_copies(group, visible_only=True) if parent is None else [item]
             for child in children:
                 source = child.data(0, FILE_ROLE)
                 if checked:
@@ -744,13 +854,23 @@ class MainWindow(QMainWindow):
                 else:
                     self.queued.discard(source)
             self.refresh_group_checks(group)
-        self.update_review_actions()
+        self.refresh_queue_view()
+
+    def can_keep(self, item):
+        return (
+            self.worker is None and self.scan_id is not None and not self.scan_similarity
+            and item is not None and item.parent() is not None
+            and not item.isHidden() and not item.parent().isHidden()
+            and item.data(0, FILE_ROLE) not in self.moved_files
+        )
+
+    def keep_file(self, item):
+        if self.can_keep(item):
+            self.set_keeper(item.parent(), item, "Manual choice")
+            self.refresh_queue_view()
 
     def keep_selected_file(self):
-        item = self.results.currentItem()
-        if self.keep.isEnabled():
-            self.set_keeper(item.parent(), item)
-            self.update_review_actions()
+        self.keep_file(self.results.currentItem())
 
     def choose_keeper_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -760,6 +880,8 @@ class MainWindow(QMainWindow):
             self.plan_by_folder(Path(folder).resolve())
 
     def plan_by_folder(self, folder):
+        self.preferred_keeper_folder = folder
+        self.keeper_report = ""
         planned = 0
         skipped = 0
         with QSignalBlocker(self.results):
@@ -782,21 +904,164 @@ class MainWindow(QMainWindow):
                 if len(preferred) != 1:
                     skipped += 1
                     continue
-                self.set_keeper(group, preferred[0])
-                self.queued.update(child.data(0, FILE_ROLE) for child in self.eligible_copies(group))
+                self.set_keeper(group, preferred[0], "Preferred folder")
+                self.queued.update(
+                    child.data(0, FILE_ROLE) for child in self.eligible_copies(group, visible_only=True)
+                )
                 self.refresh_group_checks(group)
                 planned += 1
-        self.update_review_actions()
+        self.refresh_queue_view()
         self.summary.setText(
             f"Queued {planned:,} visible groups · {skipped:,} need manual review"
         )
+
+    def show_queue_menu(self, position):
+        item = self.results.itemAt(position)
+        path = self.result_path(item)
+        allow_queue = self.plan.isEnabled()
+        if not path and not allow_queue:
+            return
+        menu = QMenu(self.results)
+        if path:
+            folder = str(Path(path).parent)
+            menu.addAction("Copy file path", lambda: QApplication.clipboard().setText(path))
+            menu.addAction("Copy folder path", lambda: QApplication.clipboard().setText(folder))
+            folder_filter = folder.rstrip("/\\") + os.sep
+            menu.addAction("Filter by this folder", lambda: self.filter.setText(folder_filter))
+            if self.can_keep(item):
+                menu.addAction("Keep this file", lambda: self.keep_file(item))
+        if allow_queue:
+            if path:
+                menu.addSeparator()
+            menu.addAction("Check all visible copies", lambda: self.change_bulk_checks("check"))
+            menu.addAction("Uncheck all visible copies", lambda: self.change_bulk_checks("uncheck"))
+            menu.addAction("Clear move queue", lambda: self.change_bulk_checks("clear"))
+        menu.exec(self.results.viewport().mapToGlobal(position))
+        menu.deleteLater()
+
+    def change_bulk_checks(self, operation):
+        if not self.plan.isEnabled():
+            return
+        with QSignalBlocker(self.results):
+            if operation == "clear":
+                self.queued.clear()
+            for index in range(self.results.topLevelItemCount()):
+                group = self.results.topLevelItem(index)
+                if group.isHidden() and operation != "clear":
+                    continue
+                paths = {
+                    child.data(0, FILE_ROLE) for child in self.eligible_copies(group, visible_only=True)
+                }
+                if operation == "check":
+                    self.queued.update(paths)
+                elif operation == "uncheck":
+                    self.queued.difference_update(paths)
+                self.refresh_group_checks(group)
+        self.refresh_queue_view()
+
+    def choose_filename_folder(self):
+        if not self.filename_plan.isEnabled():
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self, "Count filename patterns in folder", str(self.scan_folder)
+        )
+        if not folder:
+            return
+        try:
+            scope_folder = Path(folder).resolve(strict=True)
+            if not scope_folder.is_relative_to(self.scan_folder):
+                raise ValueError("Choose the scanned folder or one of its subfolders.")
+            scan = self.history.scan_settings(self.scan_id)
+            extensions = (
+                set(json.loads(scan["extensions"])) if scan["extensions"] is not None
+                else scan_extensions(scan["scope"], False, legacy=True)
+            )
+        except (OSError, ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, "Filename patterns", str(error))
+            return
+        if not self.lock_operation():
+            return
+        self.worker = CountFilenamePatterns(scope_folder, extensions, self)
+        self.worker.counted.connect(self.filename_counts_ready)
+        self.worker.failed.connect(self.filename_count_failed)
+        self.worker.finished.connect(self.work_finished)
+        self.summary.setText(f"Counting filename patterns in {scope_folder}…")
+        self.set_busy(True)
+        self.worker.start()
+
+    def filename_counts_ready(self, counts):
+        self.apply_filename_plan(self.worker.folder, counts)
+
+    def filename_count_failed(self, message):
+        self.summary.setText(f"Could not count filenames: {message}")
+
+    def flag_for_review(self, group, reason):
+        group.setData(0, KEEPER_ROLE, None)
+        group.setData(0, KEEP_REASON_ROLE, None)
+        group.setData(0, REVIEW_ROLE, reason)
+        group.setText(2, f"Review · {reason}")
+        for index in range(group.childCount()):
+            child = group.child(index)
+            if child.data(0, FILE_ROLE) not in self.moved_files:
+                child.setText(2, "")
+        self.refresh_group_checks(group)
+
+    def apply_filename_plan(self, folder, counts):
+        style = winning_style(counts)
+        flagged = 0
+        with QSignalBlocker(self.results):
+            for index in range(self.results.topLevelItemCount()):
+                group = self.results.topLevelItem(index)
+                if group.isHidden():
+                    continue
+                available = {
+                    Path(child.data(0, FILE_ROLE)): child
+                    for child in (group.child(i) for i in range(group.childCount()))
+                    if child.data(0, FILE_ROLE) not in self.moved_files
+                }
+                if len(available) < 2 or not any(path.is_relative_to(folder) for path in available):
+                    continue
+                self.queued.difference_update(str(path) for path in available)
+                if group.data(0, KEEP_REASON_ROLE) != "Manual choice":
+                    if style is None:
+                        keeper, reason = None, "No winning filename pattern"
+                    else:
+                        keeper, reason = filename_keeper(
+                            available, folder, style, self.preferred_keeper_folder
+                        )
+                    if keeper is None:
+                        self.flag_for_review(group, reason)
+                        flagged += 1
+                        continue
+                    self.set_keeper(group, available[keeper], reason)
+                self.queued.update(
+                    child.data(0, FILE_ROLE) for child in self.eligible_copies(group, visible_only=True)
+                )
+                self.refresh_group_checks(group)
+        winner = style or "No clear winner"
+        counts_text = " · ".join(
+            f"{pattern}: {counts.get(pattern, 0):,}" for pattern in (DATE_DOTS, DATE_COMPACT, OTHER)
+        )
+        self.keeper_report = (
+            f"Keeper rule · {winner}\n{folder}\n{counts_text}\n"
+            f"{flagged:,} groups flagged for manual review when the rule ran."
+        )
+        self.summary.setText(f"Filename rule · {len(self.queued):,} copies queued · {flagged:,} flagged")
+        self.refresh_queue_view()
+
+    def keeper_summary(self):
+        if self.keeper_report:
+            return f"{self.keeper_report}\n{len(self.queued):,} copies currently queued."
+        return ""
 
     def checked_copies(self):
         copies = {}
         for source in sorted(self.queued):
             child = self.move_items[source]
-            keeper = child.parent().data(0, KEEPER_ROLE)
-            copies[Path(source)] = (Path(keeper), child.data(0, SIZE_ROLE))
+            group = child.parent()
+            keeper = group.data(0, KEEPER_ROLE)
+            if keeper and source != keeper and source not in self.moved_files and not group.data(0, REVIEW_ROLE):
+                copies[Path(source)] = (Path(keeper), child.data(0, SIZE_ROLE))
         return copies
 
     def update_review_actions(self):
@@ -806,52 +1071,127 @@ class MainWindow(QMainWindow):
         self.copy.setEnabled(bool(path))
         exact_ready = self.worker is None and self.scan_id is not None and not self.scan_similarity
         self.plan.setEnabled(exact_ready and self.results.topLevelItemCount() > 0)
-        self.keep.setEnabled(
-            exact_ready and bool(path) and not item.parent().isHidden()
-            and item.data(0, FILE_ROLE) not in self.moved_files
-        )
-        self.move.setEnabled(exact_ready and bool(self.queued))
+        self.filename_plan.setEnabled(self.plan.isEnabled())
+        self.scan_status.set_keeper_summary(self.keeper_summary())
+        self.keep.setEnabled(self.can_keep(item))
+        ready_to_move = exact_ready and bool(self.queued)
+        self.move.setEnabled(ready_to_move)
+        self.recycle.setEnabled(ready_to_move)
         count = len(self.queued)
         self.move.setText(f"Move {count:,} checked copies…" if count else "Move exact copies…")
+        self.update_queue_summary()
 
-    def confirm_move_plan(self, jobs, destination, total_size):
+    def update_queue_summary(self):
+        hidden = 0
+        size = 0
+        for source in self.queued:
+            item = self.move_items.get(source)
+            if item is not None:
+                size += item.data(0, SIZE_ROLE)
+                hidden += item.isHidden() or item.parent().isHidden()
+        self.queue_summary.setText(
+            f"{len(self.queued):,} queued · {hidden:,} hidden by filter · {format_bytes(size)}"
+        )
+
+    def refresh_queue_view(self):
+        if self.queued_only.isChecked():
+            self.filter_results(self.filter.text())
+        else:
+            self.update_review_actions()
+
+    def confirm_move_plan(self, jobs, destination, sizes, *, recycle=False):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Review exact-copy moves")
+        dialog.setWindowTitle("Review Recycle Folder batch" if recycle else "Review exact-copy moves")
         dialog.resize(940, 520)
         layout = QVBoxLayout(dialog)
-        renamed = sum(source.name != target.name for _, source, target in jobs)
-        conflict_note = f"\n{renamed:,} copies have new names to avoid conflicts." if renamed else ""
-        summary = QLabel(
-            f"{len(jobs):,} copies · {total_size / (1024 * 1024):,.2f} MiB\n"
-            f"Scanned folder: {self.scan_folder}\nDestination folder: {destination}\n"
-            "The app verifies each copy against its keeper before moving."
-            + conflict_note
-        )
+        remaining = dict(enumerate(jobs))
+        summary = QLabel()
         summary.setTextFormat(Qt.TextFormat.PlainText)
         summary.setWordWrap(True)
         layout.addWidget(summary)
+        if self.keeper_report:
+            rule = QLabel(self.keeper_report)
+            rule.setTextFormat(Qt.TextFormat.PlainText)
+            rule.setWordWrap(True)
+            layout.addWidget(rule)
+
         table = QTreeWidget()
         table.setRootIsDecorated(False)
         table.setAlternatingRowColors(True)
         table.setUniformRowHeights(True)
-        table.setHeaderLabels(["Keep · relative path", "Move · source path", "New full path"])
+        table.setHeaderLabels(["Keeper path", "Source path", "Destination path"])
         table.setColumnWidth(0, 240)
         table.setColumnWidth(1, 240)
-        for keeper, source, target in jobs:
-            paths = [str(keeper.relative_to(self.scan_folder)),
-                     str(source), str(target)]
-            item = QTreeWidgetItem(table, paths)
-            for column, path in enumerate(paths):
-                item.setToolTip(column, path)
-        layout.addWidget(table)
+        for index, (keeper, source, target) in remaining.items():
+            item = QTreeWidgetItem(table, [str(keeper.relative_to(self.scan_folder)), str(source), str(target)])
+            item.setData(0, FILE_ROLE, index)
+            for column, full_path in enumerate((keeper, source, target)):
+                item.setToolTip(column, str(full_path))
+        table.setSortingEnabled(True)
+        table.sortItems(1, Qt.SortOrder.AscendingOrder)
+        layout.addWidget(table, 1)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        confirm = buttons.addButton("Move copies", QDialogButtonBox.ButtonRole.AcceptRole)
+        confirm = buttons.addButton("Recycle copies" if recycle else "Move copies", QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setDefault(True)
         confirm.setAutoDefault(False)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        return dialog.exec() == QDialog.DialogCode.Accepted
+
+        def refresh_summary():
+            size = sum(sizes[source] for _, source, _ in remaining.values())
+            renamed = sum(source.name != target.name for _, source, target in remaining.values())
+            message = (
+                f"{len(remaining):,} copies · {format_bytes(size)}\n"
+                f"Scanned folder: {self.scan_folder}\nDestination folder: {destination}\n"
+                "The app verifies each copy against its keeper before moving."
+            )
+            if renamed:
+                message += f"\n{renamed:,} copies have new names to avoid conflicts."
+            summary.setText(message)
+            confirm.setEnabled(bool(remaining))
+
+        def remove_row(item):
+            remaining.pop(item.data(0, FILE_ROLE))
+            table.takeTopLevelItem(table.indexOfTopLevelItem(item))
+            refresh_summary()
+
+        def open_folder(path):
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent))):
+                QMessageBox.warning(dialog, "Open folder", f"Could not open {path.parent}")
+
+        def row_menu(position):
+            item = table.itemAt(position)
+            if item is None:
+                return
+            keeper, source, target = remaining[item.data(0, FILE_ROLE)]
+            menu = QMenu(table)
+            for name, path in zip(("keeper", "source", "destination"), (keeper, source, target)):
+                menu.addAction(
+                    f"Copy {name} path",
+                    lambda checked=False, value=str(path): QApplication.clipboard().setText(value),
+                )
+            menu.addAction(
+                "Copy all three paths",
+                lambda: QApplication.clipboard().setText(
+                    f"Keeper: {keeper}\nSource: {source}\nDestination: {target}"
+                ),
+            )
+            menu.addSeparator()
+            menu.addAction("Open keeper folder", lambda: open_folder(keeper))
+            menu.addAction("Open source folder", lambda: open_folder(source))
+            menu.addSeparator()
+            menu.addAction("Remove from this move", lambda: remove_row(item))
+            menu.exec(table.viewport().mapToGlobal(position))
+            menu.deleteLater()
+
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(row_menu)
+        refresh_summary()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return list(remaining.values())
+        return None
 
     def choose_move_destination(self):
         if not self.move.isEnabled():
@@ -862,7 +1202,37 @@ class MainWindow(QMainWindow):
         if folder:
             self.plan_move_to(Path(folder))
 
-    def plan_move_to(self, destination):
+    def choose_recycle_destination(self):
+        if not self.recycle.isEnabled():
+            return
+        recent = self.settings.value("recycleFolder", str(self.scan_folder.parent), type=str)
+        folder = QFileDialog.getExistingDirectory(self, "Choose the Recycle Folder", recent)
+        if folder:
+            self.plan_move_to(Path(folder), recycle=True)
+
+    def show_recycle_folder(self):
+        if self.worker is None:
+            RecycleDialog(self).exec()
+
+    def file_restored(self, entry, target):
+        if entry["scan_id"] != self.scan_id:
+            return
+        source = entry["source"]
+        same_location = Path(source) == target
+        if same_location:
+            self.moved_files.pop(source, None)
+        else:
+            self.moved_files[source] = str(target)
+        item = self.move_items.get(source)
+        if item is not None:
+            with QSignalBlocker(self.results):
+                item.setText(2, "" if same_location else "Restored")
+                item.setToolTip(0, str(target))
+                self.refresh_group_checks(item.parent())
+            self.filter_results(self.filter.text())
+            self.show_preview(self.results.currentItem())
+
+    def plan_move_to(self, destination, *, recycle=False):
         copies = self.checked_copies()
         if self.worker is not None or self.scan_similarity or not copies:
             return
@@ -872,19 +1242,29 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, "Move destination", str(error))
             return
-        total_size = sum(size for _, size in copies.values())
-        if not self.confirm_move_plan(jobs, destination, total_size):
+        sizes = {source: size for source, (_, size) in copies.items()}
+        jobs = self.confirm_move_plan(jobs, destination, sizes, recycle=recycle)
+        if not jobs or not self.lock_operation():
             return
 
-        if not self.lock_operation():
-            return
+        included = {source for _, source, _ in jobs}
+        with QSignalBlocker(self.results):
+            for source in copies.keys() - included:
+                self.queued.discard(str(source))
+                self.refresh_group_checks(self.move_items[str(source)].parent())
+        total_size = sum(sizes[source] for source in included)
         self.video_preview.clear()
-        self.worker = MoveCopies(jobs, self.history, self.scan_id, destination, self)
+        if recycle:
+            self.settings.setValue("recycleFolder", str(destination))
+        self.worker = MoveCopies(
+            jobs, {source: sizes[source] for source in included}, self.history, self.scan_id,
+            destination, self, recycle=recycle,
+        )
         self.worker.progress.connect(self.move_status.update_progress)
         self.worker.file_moved.connect(self.show_file_moved)
         self.worker.completed.connect(self.show_move_results)
         self.worker.finished.connect(self.work_finished)
-        self.summary.setText("Verifying and moving checked copies…")
+        self.summary.setText("Verifying copies for Recycle Folder…" if recycle else "Verifying and moving checked copies…")
         self.set_busy(True)
         self.show_preview(self.results.currentItem())
         self.move_status.begin(destination, len(jobs), total_size)
@@ -901,6 +1281,8 @@ class MainWindow(QMainWindow):
                 self.refresh_group_checks(item.parent())
                 if self.results.currentItem() is item:
                     item.setSelected(False)
+        if not self.queue_refresh.isActive():
+            self.queue_refresh.start(150)
 
     def show_move_results(self, moved, errors):
         self.filter_results(self.filter.text())
@@ -936,6 +1318,10 @@ class MainWindow(QMainWindow):
             event.ignore()
         else:
             super().closeEvent(event)
+            if event.isAccepted():
+                self.settings.setValue("mainWindow/geometry", self.saveGeometry())
+                self.settings.setValue("mainWindow/previewSplit", self.review_splitter.saveState())
+                self.settings.sync()
 
 
 def main():

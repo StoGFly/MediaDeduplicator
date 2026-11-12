@@ -1,6 +1,6 @@
 """Inline playback controls for the review panel."""
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QSettings, QTimer, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -21,6 +21,8 @@ class VideoPreview(QWidget):
         self.priming = False
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
+        self.settings = QSettings("MediaDeduplicator", "MediaDeduplicator")
+        self.user_muted = self.settings.value("videoPreview/muted", False, type=bool)
         self.player.setAudioOutput(self.audio)
         self.prime_timer = QTimer(self)
         self.prime_timer.setSingleShot(True)
@@ -49,6 +51,27 @@ class VideoPreview(QWidget):
         controls.addWidget(self.seek, 1)
         controls.addWidget(self.time)
         layout.addLayout(controls)
+
+        audio_controls = QHBoxLayout()
+        for seconds in (-10, 10):
+            button = QPushButton(f"{seconds:+d}s")
+            button.clicked.connect(lambda checked=False, step=seconds: self.skip(step))
+            audio_controls.addWidget(button)
+        self.mute = QPushButton("Mute")
+        self.mute.setCheckable(True)
+        self.mute.setChecked(self.user_muted)
+        self.mute.toggled.connect(self.set_muted)
+        audio_controls.addWidget(self.mute)
+        self.volume = QSlider(Qt.Orientation.Horizontal)
+        self.volume.setAccessibleName("Video volume")
+        self.volume.setRange(0, 100)
+        self.volume.setValue(self.settings.value("videoPreview/volume", 100, type=int))
+        self.volume.valueChanged.connect(self.set_volume)
+        self.audio.setVolume(self.volume.value() / 100)
+        self.audio.setMuted(self.user_muted)
+        audio_controls.addWidget(self.volume, 1)
+        layout.addLayout(audio_controls)
+
         self.open_default = QPushButton("Open in default player")
         self.open_default.clicked.connect(self.open_external)
         layout.addWidget(self.open_default, 0, Qt.AlignmentFlag.AlignLeft)
@@ -99,8 +122,21 @@ class VideoPreview(QWidget):
         if not was_priming and self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
         else:
-            self.audio.setMuted(False)
+            self.audio.setMuted(self.user_muted)
             self.player.play()
+
+    def set_volume(self, volume):
+        self.audio.setVolume(volume / 100)
+        self.settings.setValue("videoPreview/volume", volume)
+
+    def set_muted(self, muted):
+        self.user_muted = muted
+        self.audio.setMuted(muted or self.priming)
+        self.settings.setValue("videoPreview/muted", muted)
+
+    def skip(self, seconds):
+        position = self.player.position() + seconds * 1000
+        self.player.setPosition(max(0, min(position, self.player.duration())))
 
     def state_changed(self, state):
         playing = state == QMediaPlayer.PlaybackState.PlayingState and not self.priming

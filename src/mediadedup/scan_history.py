@@ -90,6 +90,17 @@ class ScanHistory:
                     extensions TEXT NOT NULL
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS gui_recycle (
+                    id INTEGER PRIMARY KEY,
+                    scan_id INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    destination TEXT NOT NULL,
+                    digest TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    restored_to TEXT
+                )
+            """)
         except sqlite3.Error:
             connection.close()
             raise
@@ -284,3 +295,43 @@ class ScanHistory:
         if row is None:
             raise ValueError("This comparison was not found.")
         return json.loads(row["results"])
+
+    def begin_recycle(self, scan_id, source, destination, digest):
+        with closing(self.connect()) as connection, connection:
+            row = connection.execute("""
+                INSERT INTO gui_recycle (scan_id, source, destination, digest, status)
+                VALUES (?, ?, ?, ?, 'pending')
+            """, (scan_id, str(source), str(destination), digest))
+            return row.lastrowid
+
+    def complete_recycle(self, entry_id):
+        with closing(self.connect()) as connection, connection:
+            connection.execute("UPDATE gui_recycle SET status = 'recycled' WHERE id = ?", (entry_id,))
+            connection.execute("""
+                INSERT OR REPLACE INTO gui_moves (scan_id, source, destination)
+                SELECT scan_id, source, destination FROM gui_recycle WHERE id = ?
+            """, (entry_id,))
+
+    def recycle_entries(self):
+        with closing(self.connect()) as connection:
+            return connection.execute("""
+                SELECT id, scan_id, source, destination, digest, status, restored_to
+                FROM gui_recycle ORDER BY id DESC
+            """).fetchall()
+
+    def finish_restore(self, entry, destination):
+        source = entry["source"]
+        target = str(destination)
+        with closing(self.connect()) as connection, connection:
+            connection.execute("""
+                UPDATE gui_recycle SET status = 'restored', restored_to = ? WHERE id = ?
+            """, (target, entry["id"]))
+            if Path(source) == destination:
+                connection.execute(
+                    "DELETE FROM gui_moves WHERE scan_id = ? AND source = ?",
+                    (entry["scan_id"], source),
+                )
+            else:
+                connection.execute("""
+                    INSERT OR REPLACE INTO gui_moves (scan_id, source, destination) VALUES (?, ?, ?)
+                """, (entry["scan_id"], source, target))

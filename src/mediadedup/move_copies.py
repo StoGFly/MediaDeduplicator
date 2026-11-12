@@ -52,10 +52,38 @@ def move_copy(keeper, source, destination, *, on_moving=None):
     if file_fingerprint(keeper) != keeper_state or file_fingerprint(source) != source_state:
         raise ValueError("A file changed during verification.")
     if on_moving is not None:
-        on_moving()
+        on_moving(digest)
+
+    def unchanged():
+        return file_fingerprint(source) == source_state and file_fingerprint(keeper) == keeper_state
+
+    relocate_verified(source, destination, digest, unchanged)
+
+
+def restore_copy(source, destination, digest):
+    """Restore a recycled file only if it matches the recorded digest."""
+    if source == destination or destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"Restore path already exists: {destination}")
+    if source.is_symlink():
+        raise ValueError("The recycle path points to a link.")
+    signature = file_fingerprint(source)
+    if sha256_file(source) != digest:
+        raise ValueError("The recycled file no longer matches its recorded hash.")
+
+    def unchanged():
+        return file_fingerprint(source) == signature
+
+    relocate_verified(source, destination, digest, unchanged)
+
+
+def relocate_verified(source, destination, digest, unchanged):
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"Destination already exists: {destination}")
+    if not unchanged():
+        raise ValueError("A file changed during verification.")
     try:
-        # Windows rename is atomic on the same drive and refuses an existing target.
+        # Windows rename refuses an existing destination.
         source.rename(destination)
         return
     except OSError as error:
@@ -65,14 +93,12 @@ def move_copy(keeper, source, destination, *, on_moving=None):
     with TemporaryDirectory(prefix=".mediadedup-", dir=destination.parent) as directory:
         staged = Path(directory) / "copy"
         shutil.copy2(source, staged)
-        if (
-            sha256_file(staged) != digest
-            or file_fingerprint(source) != source_state
-            or file_fingerprint(keeper) != keeper_state
-        ):
+        if sha256_file(staged) != digest or not unchanged():
             raise ValueError("A file changed during the move.")
         staged.rename(destination)
         try:
+            if not unchanged():
+                raise OSError("A file changed after the verified copy was written.")
             source.unlink()
         except OSError as error:
             raise OSError(f"Verified copy saved to {destination}, but the source remains: {error}") from error

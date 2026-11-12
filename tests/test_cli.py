@@ -72,3 +72,43 @@ def test_scan_skips_hidden_files_and_directories(tmp_path):
 
     assert result.exit_code == 0
     assert "Files discovered: 1" in result.stdout
+
+def test_exact_media_scope_is_saved(tmp_path, monkeypatch):
+    from mediadedup import scan_history
+
+    history = scan_history.ScanHistory(tmp_path / "history.db")
+    monkeypatch.setattr(scan_history, "ScanHistory", lambda: history)
+    folder = tmp_path / "media"
+    folder.mkdir()
+    (folder / "a.mp4").write_bytes(b"matching")
+    (folder / "b.mov").write_bytes(b"matching")
+    (folder / "excluded.jpg").write_bytes(b"matching")
+
+    result = runner.invoke(app, ["exact", str(folder), "--media", "videos", "--workers", "2"])
+
+    assert result.exit_code == 0
+    assert "2 files · 1 exact duplicate groups" in result.stdout
+    assert "excluded.jpg" not in result.stdout
+    entry, = history.list_scans()
+    assert entry["scope"] == "videos"
+
+
+def test_overlap_command_lists_unmatched_media(tmp_path, monkeypatch):
+    from mediadedup import scan_history
+
+    history = scan_history.ScanHistory(tmp_path / "history.db")
+    monkeypatch.setattr(scan_history, "ScanHistory", lambda: history)
+    first = tmp_path / "camera"
+    second = tmp_path / "backup"
+    first.mkdir()
+    second.mkdir()
+    (first / "original.jpg").write_bytes(b"same bytes")
+    (second / "renamed.jpg").write_bytes(b"same bytes")
+    (second / "only.mp4").write_bytes(b"extra file")
+
+    result = runner.invoke(app, ["overlap", str(first), str(second)])
+
+    assert result.exit_code == 0
+    assert "1/2 matched · 1 only here" in result.stdout
+    assert "only.mp4" in result.stdout
+    assert len(history.recent_overlaps()) == 1

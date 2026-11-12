@@ -1,6 +1,6 @@
 # MediaDeduplicator - Development Handoff
 
-Last updated: 2026-11-06
+Last updated: 2026-11-13
 
 ## 1. Purpose
 
@@ -28,7 +28,7 @@ Activate with:
 
 ## 3. Last verified Git checkpoint
 
-The benchmark framework, curated labels and ORB experiments 23-26 were committed in `111a6db`. Experiments 27 and 28 extend that research locally. Use `git log -1 --oneline` and `git status --short --branch` to check the current checkout.
+Commit `111a6db` added the benchmark framework and ORB experiments 23–26. Commit `9df0ee3` records Experiments 27 and 28. Commit `1c256ec` introduced the desktop app on `feature/desktop-media-review`. Use `git log -1 --oneline` and `git status --short --branch` to check the current checkout.
 
 The [curated benchmark labels](../../benchmarks/data/curated_pair_labels.csv) are tracked. Git ignores `TestMedia/`, root-level `TestMedia_manifest_*.csv` inventories and `benchmarks/results/`. Keep personal media and generated results local.
 
@@ -189,30 +189,21 @@ The run reproduced the common Experiment 27 metrics across 124 pairs. Seven geom
 
 ## 8. Immediate next task
 
-Evaluate a review-only image pilot on a representative labelled folder. Record overlap on each side separately and compare genuine crops, near-duplicate bursts and images that share a small region. Treat ambiguous local matches as candidates for manual review. Keep the existing exact scan read-only.
+Follow-up work discussed for the desktop app:
 
-Run the full suite with `python -m pytest -v` and verify standalone research scripts separately.
+- Add folder exclusions and optional protection for original folders. Consider a keep-one-per-folder rule for independent backups.
+- Extend Folder Overlap with unmatched-file navigation and export. Preview a merge into the destination, copy missing files, and handle name conflicts before writing.
+- Benchmark partial sampling of same-size videos on a large drive before deciding whether to add it ahead of full SHA-256.
 
-## 9. GUI requirement
+The separate image research task is to validate ORB coverage on labelled crops, bursts and images that share a region. Keep those results in `docs/experiments/ORB_RESEARCH.md`.
 
-Launch from the project environment with `python -m mediadedup.gui`.
+## 9. Desktop and command-line handoff
 
-Choose a recent folder in the editable path dropdown, or enter a new path. **Scan options → File extensions** lets you choose individual formats and stores the filter with the scan. Hide Scan Status to see compact progress along the bottom of the main window.
+Launch the app with `python -m mediadedup.gui`. Use the [desktop guide](../../README.md#desktop-app) for keeper rules, the move queue, Recycle Folder and video review. For terminal use, see the [command-line examples](../../README.md#command-line).
 
-The Media preview panel supports video playback and opening the file in the default player. Tick copies to queue them for moving. **Move Status** shows the current file, bytes moved and issues. Successful moves clear their checkboxes, and failed copies stay queued for review.
+The app stores history and recycle records in the local SQLite database. Recycling records the original path, recycle path and verified digest before moving a copy. A pending entry may remain after an interrupted move. Review both paths before retrying. Restore verifies the digest and uses an unused path.
 
-- **Basic** finds exact SHA-256 duplicates in photos, videos, or both. Select the file types under **Include**. Advanced similarity searches photos.
-- **Advanced** exposes the pHash agreement threshold and hash width for manual similarity review. The search compares every pair and may miss crops.
-
-Both modes scan read-only. ORB controls remain part of the research roadmap.
-
-**Review → Folder overlap** compares two separate folder trees using SHA-256. It shows how many files on each side match the other folder, the matched size, and the files that exist only on that side. Completed comparisons are saved locally.
-
-Open **Scan Status** to see progress, elapsed time and totals. **Stop scan** saves a checkpoint. **Resume** checks for changed files and continues the saved scan. **Start fresh** starts a new history entry. Only one scan or move can run against the local database at a time.
-
-The toolbar provides folder selection, scanning, scan history, filtering and file review controls. Desktop scans are recorded in the local `sql.db` under the MediaDeduplicator application data folder. History can reopen completed results with the original scan settings.
-
-In Basic mode, select an exact group or extra copies and use **Move exact copies** to choose a destination. The app keeps the first file in each group, rechecks both hashes and preserves relative paths at the destination.
+Verify changes with `python -m pytest -q`. Test GUI moves and restores with disposable copies and a separate database. Personal media, generated benchmark results, and the live database belong outside Git.
 
 ## 10. User working preferences
 
@@ -258,7 +249,7 @@ Do not assume the previous experiment or research state is still current without
 
 The latest documented research milestone is Experiment 28 - Coverage within estimated overlap.
 
-Resume with the image pilot evaluation in Section 8, unless the user requests a different task.
+Review the desktop follow-up list in Section 8 before choosing the next task.
 
 Do not repeat completed experiments unnecessarily.
 
