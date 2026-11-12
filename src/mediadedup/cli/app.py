@@ -29,10 +29,14 @@ def is_hidden(path: Path) -> bool:
 
 def discover_files(root: Path) -> list[Path]:
     """Recursively discover files, excluding hidden items and symlinks."""
-    discovered = []
+    return list(iter_files(root))
 
+
+def iter_files(root: Path, *, on_error=None):
+    """Yield discoverable files as folders are visited."""
     for current_dir, directories, filenames in os.walk(
         root,
+        onerror=on_error,
         followlinks=False,
     ):
         current_path = Path(current_dir)
@@ -51,9 +55,7 @@ def discover_files(root: Path) -> list[Path]:
                 continue
 
             if file_path.is_file():
-                discovered.append(file_path)
-
-    return discovered
+                yield file_path
 
 
 @app.callback()

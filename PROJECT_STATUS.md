@@ -10,7 +10,7 @@ Project directory: `F:\MediaDeduplicator`
 
 Git repository: `StoGFly/MediaDeduplicator` (public GitHub repository).
 
-The application focuses on exact duplicate detection and visual similarity for images.
+The application focuses on exact duplicate detection for photos and videos, and visual similarity for photos.
 
 Planned interfaces:
 - Graphical interface using PySide6.
@@ -199,31 +199,24 @@ A high inlier percentage alone is insufficient evidence of a genuine match.
 
 ## 7. GUI design direction
 
-The intended GUI will provide two experience levels.
+Launch from the project environment with `python -m mediadedup.gui`.
 
-### Basic mode
+Choose a recent folder in the editable path dropdown, or enter a new path. **Scan options → File extensions** lets you choose individual formats and stores the filter with the scan. Hide Scan Status to see compact progress along the bottom of the main window.
 
-- Straightforward controls.
-- Sensible automatic defaults.
-- Clear similarity results.
-- Minimal technical complexity.
-- Safe workflows.
+The Media preview panel supports video playback and opening the file in the default player. Tick copies to queue them for moving. **Move Status** shows the current file, bytes moved and issues. Successful moves clear their checkboxes, and failed copies stay queued for review.
 
-### Advanced mode
+- **Basic** finds exact SHA-256 duplicates in photos, videos, or both. Select the file types under **Include**. Advanced similarity searches photos.
+- **Advanced** exposes the pHash agreement threshold and hash width for manual similarity review. The search compares every pair and may miss crops.
 
-Expose adjustable detection parameters, including:
-- ORB feature count.
-- Lowe ratio threshold.
-- Mutual matching.
-- RANSAC reprojection threshold.
-- Resolution and downscaling.
-- Potential retry strategies.
+Both modes scan read-only. ORB controls remain part of the research roadmap.
 
-Advanced settings must explain their effects on speed, sensitivity and false-positive risk.
+**Review → Folder overlap** compares two separate folder trees using SHA-256. It shows how many files on each side match the other folder, the matched size, and the files that exist only on that side. Completed comparisons are saved locally.
 
-Provide sensible defaults and safeguards.
+Open **Scan Status** to see progress, elapsed time and totals. **Stop scan** saves a checkpoint. **Resume** checks for changed files and continues the saved scan. **Start fresh** starts a new history entry. Only one scan or move can run against the local database at a time.
 
-This GUI design is planned, not implemented.
+The toolbar provides folder selection, scanning, scan history, filtering and file review controls. Desktop scans are recorded in the local `sql.db` under the MediaDeduplicator application data folder. History can reopen completed results with the original scan settings.
+
+In Basic mode, select an exact group or extra copies and use **Move exact copies** to choose a destination. The app keeps the first file in each group, rechecks both hashes and preserves relative paths at the destination.
 
 ## 8. Planned development areas
 
@@ -234,8 +227,7 @@ The following areas remain future work unless subsequent documentation or source
 - Larger and more diverse positive and negative image datasets.
 - Validation of matching and acceptance thresholds.
 - Optional AI-assisted similarity using OpenCLIP.
-- SQLite-backed application storage.
-- PySide6 graphical interface.
+- Additional SQLite indexing and search tools.
 - Quarantine and restoration workflows.
 - CLI expansion.
 - TOML configuration.

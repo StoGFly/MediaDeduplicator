@@ -3,7 +3,6 @@
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
-from itertools import combinations
 from pathlib import Path
 
 import imagehash
@@ -309,10 +308,25 @@ def meets_similarity_threshold(
     return comparison.similarity_percent >= minimum_similarity
 
 
+def iter_hash_pair_rows(hashes, minimum_similarity, hash_bits, start=0):
+    """Yield scores meeting the threshold one row of the pair matrix at a time."""
+    for first in range(start, len(hashes) - 1):
+        bits_a = hashes[first]
+        matches = []
+        for second in range(first + 1, len(hashes)):
+            distance = (bits_a ^ hashes[second]).bit_count()
+            similarity = (hash_bits - distance) / hash_bits * 100.0
+            if similarity >= minimum_similarity:
+                matches.append((first, second, distance, similarity))
+        yield first, matches
+
+
 def find_similar_image_pairs(
     file_paths: Iterable[str | Path],
     minimum_similarity: float = 85.0,
     hash_size: int = 8,
+    *,
+    hash_image=None,
 ) -> list[ImageComparison]:
     """Find image pairs meeting the minimum similarity threshold.
 
@@ -322,6 +336,7 @@ def find_similar_image_pairs(
         file_paths: Image paths to compare.
         minimum_similarity: Minimum accepted similarity percentage.
         hash_size: Perceptual hash size.
+        hash_image: Optional callable returning the pHash or its hex digest.
 
     Returns:
         Matching image pairs, sorted by descending similarity.
@@ -343,40 +358,29 @@ def find_similar_image_pairs(
 
     paths = list(dict.fromkeys(Path(path) for path in file_paths))
 
-    # Calculate each image hash only once.
-    hashes = {
-        path: perceptual_hash(path, hash_size)
-        for path in paths
-    }
+    hash_image = perceptual_hash if hash_image is None else hash_image
+    hashes = []
+    for path in paths:
+        digest = str(hash_image(path, hash_size))
+        hashes.append((path, digest, int(digest, 16)))
 
+    hash_bits = hash_size * hash_size
     matching_pairs = []
-
-    for path_a, path_b in combinations(paths, 2):
-        hash_a = hashes[path_a]
-        hash_b = hashes[path_b]
-
-        distance = hamming_distance(hash_a, hash_b)
-        hash_bits = hash_a.hash.size
-
-        similarity_percent = (
-            (hash_bits - distance) / hash_bits
-        ) * 100
-
-        comparison = ImageComparison(
-            path_a=path_a,
-            path_b=path_b,
-            hash_a=str(hash_a),
-            hash_b=str(hash_b),
-            distance=distance,
-            hash_bits=hash_bits,
-            similarity_percent=similarity_percent,
-        )
-
-        if meets_similarity_threshold(
-            comparison,
-            minimum_similarity,
-        ):
-            matching_pairs.append(comparison)
+    for _, matches in iter_hash_pair_rows(
+        [bits for _, _, bits in hashes], minimum_similarity, hash_bits
+    ):
+        for first, second, distance, similarity in matches:
+            path_a, hash_a, _ = hashes[first]
+            path_b, hash_b, _ = hashes[second]
+            matching_pairs.append(ImageComparison(
+                path_a=path_a,
+                path_b=path_b,
+                hash_a=hash_a,
+                hash_b=hash_b,
+                distance=distance,
+                hash_bits=hash_bits,
+                similarity_percent=similarity,
+            ))
 
     matching_pairs.sort(
         key=lambda comparison: comparison.similarity_percent,

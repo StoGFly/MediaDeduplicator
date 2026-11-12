@@ -36,7 +36,7 @@ The [curated benchmark labels](../../benchmarks/data/curated_pair_labels.csv) ar
 
 The project is investigating ORB feature matching using OpenCV.
 
-The project roadmap focuses on images. The first real-world milestone is a read-only image pilot with manual review of similarity results. ORB remains experimental.
+The project supports exact duplicates for photos and videos and focuses similarity research on photos. The first real-world milestone is a read-only image pilot with manual review of similarity results. ORB remains experimental.
 
 ORB has not been integrated into production source code, and no production ORB tests have been written.
 
@@ -195,27 +195,24 @@ Run the full suite with `python -m pytest -v` and verify standalone research scr
 
 ## 9. GUI requirement
 
-The user wants two experience levels:
+Launch from the project environment with `python -m mediadedup.gui`.
 
-### Basic
+Choose a recent folder in the editable path dropdown, or enter a new path. **Scan options → File extensions** lets you choose individual formats and stores the filter with the scan. Hide Scan Status to see compact progress along the bottom of the main window.
 
-Simple everyday operation with sensible defaults and minimal technical complexity.
+The Media preview panel supports video playback and opening the file in the default player. Tick copies to queue them for moving. **Move Status** shows the current file, bytes moved and issues. Successful moves clear their checkboxes, and failed copies stay queued for review.
 
-### Advanced
+- **Basic** finds exact SHA-256 duplicates in photos, videos, or both. Select the file types under **Include**. Advanced similarity searches photos.
+- **Advanced** exposes the pHash agreement threshold and hash width for manual similarity review. The search compares every pair and may miss crops.
 
-Allow users to adjust ORB parameters and experiment, with safeguards and explanations.
+Both modes scan read-only. ORB controls remain part of the research roadmap.
 
-Parameters under consideration:
-- Feature count.
-- Lowe ratio threshold.
-- Mutual matching.
-- RANSAC threshold.
-- Resolution/downscaling.
-- Retry strategies.
+**Review → Folder overlap** compares two separate folder trees using SHA-256. It shows how many files on each side match the other folder, the matched size, and the files that exist only on that side. Completed comparisons are saved locally.
 
-Changing these settings affects speed, sensitivity and false-positive risk.
+Open **Scan Status** to see progress, elapsed time and totals. **Stop scan** saves a checkpoint. **Resume** checks for changed files and continues the saved scan. **Start fresh** starts a new history entry. Only one scan or move can run against the local database at a time.
 
-This is a confirmed design requirement, not an implemented feature.
+The toolbar provides folder selection, scanning, scan history, filtering and file review controls. Desktop scans are recorded in the local `sql.db` under the MediaDeduplicator application data folder. History can reopen completed results with the original scan settings.
+
+In Basic mode, select an exact group or extra copies and use **Move exact copies** to choose a destination. The app keeps the first file in each group, rechecks both hashes and preserves relative paths at the destination.
 
 ## 10. User working preferences
 
